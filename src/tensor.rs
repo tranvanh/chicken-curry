@@ -34,8 +34,6 @@ impl Tensor{
             data,
         })
     }
-    fn append_whitespace(dimension: &usize){
-    }
     fn print_tensor(&self, f: &mut fmt::Formatter<'_>, dimension: usize, flat_index: usize) -> fmt::Result{
         //println!("{:>1$}", 42, width);
         write!(f, "{}[", " ".repeat(2 * dimension))?;
