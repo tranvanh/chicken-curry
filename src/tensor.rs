@@ -85,7 +85,6 @@ impl Tensor{
     }
 
     fn print_tensor(&self, f: &mut fmt::Formatter<'_>, index: &mut Vec<usize>, dimension : usize) -> fmt::Result{
-
         write!(f, "{}[", " ".repeat(2 * dimension))?;
 
         if dimension < self.shape.len()-1 {
