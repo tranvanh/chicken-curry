@@ -110,6 +110,20 @@ impl Tensor{
         return Ok(());
     }
 
+
+    fn mul_2d_flat(lhs_data: &Vec<f32>, row_lhs: usize, col_lhs: usize, rhs_data: &Vec<f32>, row_rhs: usize, col_rhs: usize) -> Vec<f32> {
+        let mut result = vec![0.0; row_lhs * col_rhs];
+        for row in 0..row_lhs {
+            for col in 0..col_rhs {
+                let mut sum: f32 = 0.0;
+                for inner in 0..col_lhs {
+                    sum += lhs_data[row * col_lhs + inner] * rhs_data[inner * col_rhs + col];
+                }
+                result[row * col_rhs + col] = sum;
+            }
+        }
+        return result;
+    }
     pub fn mul_2d(lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, TensorError> {
         if lhs.shape.len() != 2 || rhs.shape.len() != 2 {
             return Err(ShapeNotSupported);
@@ -127,18 +141,7 @@ impl Tensor{
                 actual: row_rhs,
             });
         }
-
-        let mut result = vec![0.0; row_lhs * col_rhs];
-        for row in 0..row_lhs {
-            for col in 0..col_rhs {
-                let mut sum: f32 = 0.0;
-                for inner in 0..col_lhs {
-                    sum += lhs.data[row * col_lhs + inner] * rhs.data[inner * col_rhs + col];
-                }
-                result[row * col_rhs + col] = sum;
-            }
-        }
-
+        let result = Tensor::mul_2d_flat(&lhs.data, row_lhs, col_lhs, &rhs.data, row_rhs, col_rhs);
         return Tensor::new(vec![row_lhs, col_rhs], result);
     }
 }
