@@ -1,6 +1,7 @@
 use std::fmt;
 use std::ops::Mul;
 use std::ops::Add;
+use crate::tensor::TensorError::ShapeNotSupported;
 
 pub struct Tensor{
     shape: Vec<usize>,
@@ -22,7 +23,8 @@ pub enum TensorError {
     OutOfBounds {
         bound: usize,
         index: usize
-    }
+    },
+    ShapeNotSupported,
 }
 
 impl Tensor{
@@ -107,6 +109,38 @@ impl Tensor{
         writeln!(f, "]")?;
         return Ok(());
     }
+
+    pub fn mul_2d(lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, TensorError> {
+        if lhs.shape.len() != 2 || rhs.shape.len() != 2 {
+            return Err(ShapeNotSupported);
+        }
+
+        let row_lhs = lhs.shape[0];
+        let col_lhs = lhs.shape[1];
+
+        let row_rhs = rhs.shape[0];
+        let col_rhs = rhs.shape[1];
+
+        if col_lhs != row_rhs {
+            return Err(TensorError::ShapeMismatch {
+                expected: col_lhs,
+                actual: row_rhs,
+            });
+        }
+
+        let mut result = vec![0.0; row_lhs * col_rhs];
+        for row in 0..row_lhs {
+            for col in 0..col_rhs {
+                let mut sum: f32 = 0.0;
+                for inner in 0..col_lhs {
+                    sum += lhs.data[row * col_lhs + inner] * rhs.data[inner * col_rhs + col];
+                }
+                result[row * col_rhs + col] = sum;
+            }
+        }
+
+        return Tensor::new(vec![row_lhs, col_rhs], result);
+    }
 }
 
 impl fmt::Display for Tensor {
@@ -125,17 +159,7 @@ impl fmt::Display for Tensor {
     }
 }
 
-impl Mul<&Tensor> for f32 {
-    type Output = Tensor;
-    fn mul(self, rhs: &Tensor) -> Tensor { // self is already of type &Tensor, becase we have for &Tensor
-        let mut result = Tensor::new(rhs.shape.clone(), rhs.data.clone()).unwrap();
-        for element in result.data.iter_mut() {
-            *element *= self;
-        }
-        return result;
-    }
-}
-
+/// =========================== OPERATORS ===========================
 impl Add<&Tensor> for &Tensor {
     type Output = Tensor;
     fn add(self, rhs: &Tensor) -> Tensor { // self is already of type &Tensor, becase we have for &Tensor
@@ -148,5 +172,16 @@ impl Add<&Tensor> for &Tensor {
             result[i] = self.data[i] + rhs.data[i];
         }
         return Tensor::new(rhs.shape.clone(), result).unwrap();
+    }
+}
+
+impl Mul<&Tensor> for f32 {
+    type Output = Tensor;
+    fn mul(self, rhs: &Tensor) -> Tensor { // self is already of type &Tensor, becase we have for &Tensor
+        let mut result = Tensor::new(rhs.shape.clone(), rhs.data.clone()).unwrap();
+        for element in result.data.iter_mut() {
+            *element *= self;
+        }
+        return result;
     }
 }

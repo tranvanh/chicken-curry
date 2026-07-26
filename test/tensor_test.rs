@@ -31,6 +31,66 @@ fn multiplies_tensor_by_scalar() {
 }
 
 #[test]
+fn multiplies_two_2d_tensors() {
+    let left = Tensor::new(
+        vec![2, 3],
+        vec![
+            1.0, 2.0, 3.0,
+            4.0, 5.0, 6.0,
+        ],
+    )
+    .unwrap();
+    let right = Tensor::new(
+        vec![3, 2],
+        vec![
+            7.0, 8.0,
+            9.0, 10.0,
+            11.0, 12.0,
+        ],
+    )
+    .unwrap();
+
+    let result = Tensor::mul_2d(&left, &right).unwrap();
+
+    assert_eq!(*result.get(&[0, 0]).unwrap(), 58.0);
+    assert_eq!(*result.get(&[0, 1]).unwrap(), 64.0);
+    assert_eq!(*result.get(&[1, 0]).unwrap(), 139.0);
+    assert_eq!(*result.get(&[1, 1]).unwrap(), 154.0);
+}
+
+#[test]
+fn mul_2d_rejects_non_2d_tensors() {
+    let left = Tensor::new(vec![2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+    let right = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
+
+    let error = match Tensor::mul_2d(&left, &right) {
+        Ok(_) => panic!("expected ShapeNotSupported"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(error, TensorError::ShapeNotSupported));
+}
+
+#[test]
+fn mul_2d_rejects_incompatible_inner_dimensions() {
+    let left = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let right = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
+
+    let error = match Tensor::mul_2d(&left, &right) {
+        Ok(_) => panic!("expected ShapeMismatch"),
+        Err(error) => error,
+    };
+
+    match error {
+        TensorError::ShapeMismatch { expected, actual } => {
+            assert_eq!(expected, 3);
+            assert_eq!(actual, 2);
+        }
+        other => panic!("expected ShapeMismatch, got {other:?}"),
+    }
+}
+
+#[test]
 fn rejects_data_that_does_not_match_shape() {
     let error = match Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0]) {
         Ok(_) => panic!("expected InvalidShape"),
@@ -95,5 +155,3 @@ fn adding_tensors_with_different_shapes_panics() {
 
     assert!(result.is_err());
 }
-
-
