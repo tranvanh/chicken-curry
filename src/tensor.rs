@@ -140,7 +140,7 @@ impl Add<&Tensor> for &Tensor {
     type Output = Tensor;
     fn add(self, rhs: &Tensor) -> Tensor { // self is already of type &Tensor, becase we have for &Tensor
         if self.shape != rhs.shape {
-            !panic!("Shapes don't match");
+            panic!("Shapes don't match");
         }
         let mut result : Vec<f32> = vec![0.0; self.data.len()];
 
@@ -150,4 +150,3 @@ impl Add<&Tensor> for &Tensor {
         return Tensor::new(rhs.shape.clone(), result).unwrap();
     }
 }
-
