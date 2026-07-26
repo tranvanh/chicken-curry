@@ -91,6 +91,71 @@ fn mul_2d_rejects_incompatible_inner_dimensions() {
 }
 
 #[test]
+fn multiplication_operator_multiplies_two_2d_tensors() {
+    let left = Tensor::new(
+        vec![2, 3],
+        vec![
+            1.0, 2.0, 3.0,
+            4.0, 5.0, 6.0,
+        ],
+    )
+    .unwrap();
+    let right = Tensor::new(
+        vec![3, 2],
+        vec![
+            7.0, 8.0,
+            9.0, 10.0,
+            11.0, 12.0,
+        ],
+    )
+    .unwrap();
+
+    let result = &left * &right;
+
+    assert_eq!(*result.get(&[0, 0]).unwrap(), 58.0);
+    assert_eq!(*result.get(&[0, 1]).unwrap(), 64.0);
+    assert_eq!(*result.get(&[1, 0]).unwrap(), 139.0);
+    assert_eq!(*result.get(&[1, 1]).unwrap(), 154.0);
+}
+
+#[test]
+fn multiplication_operator_multiplies_batches_of_2d_tensors() {
+    let left = Tensor::new(
+        vec![2, 2, 3],
+        vec![
+            1.0, 2.0, 3.0,
+            4.0, 5.0, 6.0,
+            2.0, 0.0, 1.0,
+            3.0, 1.0, 4.0,
+        ],
+    )
+    .unwrap();
+    let right = Tensor::new(
+        vec![2, 3, 2],
+        vec![
+            7.0, 8.0,
+            9.0, 10.0,
+            11.0, 12.0,
+            1.0, 2.0,
+            3.0, 4.0,
+            5.0, 6.0,
+        ],
+    )
+    .unwrap();
+
+    let result = &left * &right;
+
+    assert_eq!(*result.get(&[0, 0, 0]).unwrap(), 58.0);
+    assert_eq!(*result.get(&[0, 0, 1]).unwrap(), 64.0);
+    assert_eq!(*result.get(&[0, 1, 0]).unwrap(), 139.0);
+    assert_eq!(*result.get(&[0, 1, 1]).unwrap(), 154.0);
+    assert_eq!(*result.get(&[1, 0, 0]).unwrap(), 7.0);
+    assert_eq!(*result.get(&[1, 0, 1]).unwrap(), 10.0);
+    assert_eq!(*result.get(&[1, 1, 0]).unwrap(), 26.0);
+    assert_eq!(*result.get(&[1, 1, 1]).unwrap(), 34.0);
+}
+
+#[test]
 fn rejects_data_that_does_not_match_shape() {
     let error = match Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0]) {
         Ok(_) => panic!("expected InvalidShape"),

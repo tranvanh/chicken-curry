@@ -111,7 +111,7 @@ impl Tensor{
     }
 
 
-    fn mul_2d_flat(lhs_data: &Vec<f32>, row_lhs: usize, col_lhs: usize, rhs_data: &Vec<f32>, row_rhs: usize, col_rhs: usize) -> Vec<f32> {
+    fn mul_2d_flat(lhs_data: &[f32], row_lhs: usize, col_lhs: usize, rhs_data: &[f32], _row_rhs: usize, col_rhs: usize) -> Vec<f32> {
         let mut result = vec![0.0; row_lhs * col_rhs];
         for row in 0..row_lhs {
             for col in 0..col_rhs {
@@ -123,26 +123,6 @@ impl Tensor{
             }
         }
         return result;
-    }
-    pub fn mul_2d(lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, TensorError> {
-        if lhs.shape.len() != 2 || rhs.shape.len() != 2 {
-            return Err(ShapeNotSupported);
-        }
-
-        let row_lhs = lhs.shape[0];
-        let col_lhs = lhs.shape[1];
-
-        let row_rhs = rhs.shape[0];
-        let col_rhs = rhs.shape[1];
-
-        if col_lhs != row_rhs {
-            return Err(TensorError::ShapeMismatch {
-                expected: col_lhs,
-                actual: row_rhs,
-            });
-        }
-        let result = Tensor::mul_2d_flat(&lhs.data, row_lhs, col_lhs, &rhs.data, row_rhs, col_rhs);
-        return Tensor::new(vec![row_lhs, col_rhs], result);
     }
 }
 
@@ -186,5 +166,78 @@ impl Mul<&Tensor> for f32 {
             *element *= self;
         }
         return result;
+    }
+}
+
+// Using the batch method where [..., m, n] last two dimensions create a kernel and we just iterate through pair of combinations, matching the matrices
+impl Mul<&Tensor> for &Tensor {
+    type Output = Tensor;
+    fn mul(self, rhs: &Tensor) -> Tensor {
+        // Matrix multiplication needs at least the final two dimensions:
+        // [...batch, rows, cols].
+        if self.shape.len() < 2 || rhs.shape.len() < 2 {
+            panic!("Matrix multiplication requires tensors with at least 2 dimensions");
+        }
+
+        // This implementation supports pairwise batch multiplication only,
+        // so both tensors must have the same rank and the same batch shape.
+        if self.shape.len() != rhs.shape.len() {
+            panic!("Batch dimensions don't match");
+        }
+
+        let rank = self.shape.len();
+
+        // Slicing every dimension except for last two
+        let lhs_batch_shape = &self.shape[..rank - 2];
+        let rhs_batch_shape = &rhs.shape[..rank - 2];
+
+        if lhs_batch_shape != rhs_batch_shape {
+            panic!("Batch dimensions don't match");
+        }
+
+        // Last two dimensions are the matrix shapes, kernel size:
+        // lhs is [row_lhs, col_lhs], rhs is [row_rhs, col_rhs].
+        let row_lhs = self.shape[rank - 2];
+        let col_lhs = self.shape[rank - 1];
+        let row_rhs = rhs.shape[rank - 2];
+        let col_rhs = rhs.shape[rank - 1];
+
+        // The shared inner dimension must match for matrix multiplication.
+        if col_lhs != row_rhs {
+            panic!("Shapes don't match");
+        }
+
+        // A 2D tensor has an empty batch shape; product([]) is 1, so this
+        // same loop handles both plain 2D and batched multiplication.
+        let batch_size: usize = lhs_batch_shape.iter().product();
+        let lhs_matrix_size = row_lhs * col_lhs;
+        let rhs_matrix_size = row_rhs * col_rhs;
+
+        let mut result = Vec::with_capacity(batch_size * row_lhs * col_rhs);
+        for batch in 0..batch_size {
+            // Each batch item is stored as one contiguous row-major matrix.
+            let lhs_start = batch * lhs_matrix_size;
+            let rhs_start = batch * rhs_matrix_size;
+            let lhs_end = lhs_start + lhs_matrix_size;
+            let rhs_end = rhs_start + rhs_matrix_size;
+
+            // Takes all values from the return vector and returns it by appending them to the end of existing
+            result.extend(Tensor::mul_2d_flat(
+                &self.data[lhs_start..lhs_end],
+                row_lhs,
+                col_lhs,
+                &rhs.data[rhs_start..rhs_end],
+                row_rhs,
+                col_rhs,
+            ));
+        }
+
+        // Output keeps the batch dimensions and replaces the final matrix
+        // dimensions with [lhs rows, rhs columns].
+        let mut shape = lhs_batch_shape.to_vec();
+        shape.push(row_lhs);
+        shape.push(col_rhs);
+
+        return Tensor::new(shape, result).unwrap();
     }
 }
