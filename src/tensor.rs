@@ -1,7 +1,6 @@
 use std::fmt;
 use std::ops::Mul;
 use std::ops::Add;
-use crate::tensor::TensorError::ShapeNotSupported;
 
 pub struct Tensor{
     shape: Vec<usize>,
