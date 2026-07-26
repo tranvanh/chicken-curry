@@ -14,5 +14,6 @@ fn main(){
     println!("{}", tens);
     println!("------------");
     println!("{}", test);
-
+    println!("#####");
+    println!("{}", &test + &tens);
 }

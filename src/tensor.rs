@@ -1,5 +1,6 @@
 use std::fmt;
 use std::ops::Mul;
+use std::ops::Add;
 
 pub struct Tensor{
     shape: Vec<usize>,
@@ -132,6 +133,21 @@ impl Mul<&Tensor> for f32 {
             *element *= self;
         }
         return result;
+    }
+}
+
+impl Add<&Tensor> for &Tensor {
+    type Output = Tensor;
+    fn add(self, rhs: &Tensor) -> Tensor { // self is already of type &Tensor, becase we have for &Tensor
+        if self.shape != rhs.shape {
+            !panic!("Shapes don't match");
+        }
+        let mut result : Vec<f32> = vec![0.0; self.data.len()];
+
+        for i in 0 .. self.data.len() {
+            result[i] = self.data[i] + rhs.data[i];
+        }
+        return Tensor::new(rhs.shape.clone(), result).unwrap();
     }
 }
 
