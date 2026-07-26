@@ -1,4 +1,5 @@
 use std::fmt;
+use std::ops::Mul;
 
 pub struct Tensor{
     shape: Vec<usize>,
@@ -122,3 +123,15 @@ impl fmt::Display for Tensor {
         return self.print_tensor(f, &mut index, 0);
     }
 }
+
+impl Mul<&Tensor> for f32 {
+    type Output = Tensor;
+    fn mul(self, rhs: &Tensor) -> Tensor { // self is already of type &Tensor, becase we have for &Tensor
+        let mut result = Tensor::new(rhs.shape.clone(), rhs.data.clone()).unwrap();
+        for element in result.data.iter_mut() {
+            *element *= self;
+        }
+        return result;
+    }
+}
+
