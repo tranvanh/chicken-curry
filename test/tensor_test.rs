@@ -428,9 +428,9 @@ fn unary_math_operations_apply_elementwise() {
 
 #[test]
 fn unary_operations_read_transposed_view_in_logical_order() {
-    let mut tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
 
-    tensor.t();
+    let tensor = tensor.t();
     let result = tensor.neg();
 
     assert_eq!(*result.get(&[0, 0]).unwrap(), -1.0);
@@ -443,9 +443,9 @@ fn unary_operations_read_transposed_view_in_logical_order() {
 
 #[test]
 fn unary_map_reads_transposed_view_in_logical_order() {
-    let mut tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
 
-    tensor.t();
+    let tensor = tensor.t();
     let result = tensor.map(|x| x * 10.0);
 
     assert_eq!(*result.get(&[0, 0]).unwrap(), 10.0);
@@ -530,9 +530,9 @@ fn axis_reductions_keep_rank_one_shape_when_requested() {
 
 #[test]
 fn axis_reductions_read_transposed_view_in_logical_order() {
-    let mut tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
 
-    tensor.t();
+    let tensor = tensor.t();
 
     assert_eq!(
         tensor_values(&tensor.sum_axis(0, false), &[2]),
@@ -561,9 +561,9 @@ fn axis_reductions_panic_for_out_of_bounds_axis() {
 
 #[test]
 fn t_transposes_2d_tensor() {
-    let mut tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
 
-    tensor.t();
+    let tensor = tensor.t();
 
     assert_eq!(*tensor.get(&[0, 0]).unwrap(), 1.0);
     assert_eq!(*tensor.get(&[0, 1]).unwrap(), 4.0);
@@ -575,8 +575,20 @@ fn t_transposes_2d_tensor() {
 }
 
 #[test]
+fn transpose_returns_new_tensor_without_changing_original() {
+    let tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+
+    let transposed = tensor.t();
+
+    assert_eq!(*tensor.get(&[0, 1]).unwrap(), 2.0);
+    assert_eq!(*transposed.get(&[0, 1]).unwrap(), 4.0);
+    assert!(tensor.get(&[0, 2]).is_ok());
+    assert!(transposed.get(&[0, 2]).is_err());
+}
+
+#[test]
 fn t_transposes_last_two_dimensions_for_batched_tensor() {
-    let mut tensor = Tensor::new(
+    let tensor = Tensor::new(
         vec![2, 2, 3],
         vec![
             1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
@@ -584,7 +596,7 @@ fn t_transposes_last_two_dimensions_for_batched_tensor() {
     )
     .unwrap();
 
-    tensor.t();
+    let tensor = tensor.t();
 
     assert_eq!(*tensor.get(&[0, 0, 0]).unwrap(), 1.0);
     assert_eq!(*tensor.get(&[0, 0, 1]).unwrap(), 4.0);
@@ -599,10 +611,9 @@ fn t_transposes_last_two_dimensions_for_batched_tensor() {
 
 #[test]
 fn transpose_reorders_arbitrary_axes() {
-    let mut tensor =
-        Tensor::new(vec![2, 3, 4], (1..=24).map(|value| value as f32).collect()).unwrap();
+    let tensor = Tensor::new(vec![2, 3, 4], (1..=24).map(|value| value as f32).collect()).unwrap();
 
-    tensor.transpose(&[1, 0, 2]);
+    let tensor = tensor.transpose(&[1, 0, 2]);
 
     assert_eq!(*tensor.get(&[0, 0, 0]).unwrap(), 1.0);
     assert_eq!(*tensor.get(&[0, 1, 0]).unwrap(), 13.0);
@@ -613,9 +624,9 @@ fn transpose_reorders_arbitrary_axes() {
 
 #[test]
 fn scalar_multiplication_reads_transposed_view_in_logical_order() {
-    let mut tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
 
-    tensor.t();
+    let tensor = tensor.t();
     let result = 2.0 * &tensor;
 
     assert_eq!(*result.get(&[0, 0]).unwrap(), 2.0);
@@ -629,9 +640,9 @@ fn scalar_multiplication_reads_transposed_view_in_logical_order() {
 #[test]
 fn multiplication_operator_reads_transposed_view_with_strides() {
     let left = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
-    let mut right = Tensor::new(vec![2, 3], vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0]).unwrap();
+    let right = Tensor::new(vec![2, 3], vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0]).unwrap();
 
-    right.t();
+    let right = right.t();
     let result = &left * &right;
 
     assert_eq!(*result.get(&[0, 0]).unwrap(), 50.0);
@@ -642,14 +653,14 @@ fn multiplication_operator_reads_transposed_view_with_strides() {
 
 #[test]
 fn transpose_panics_for_invalid_axis_mapping() {
-    let mut repeated_axis = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
+    let repeated_axis = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
     let repeated_axis_result = panic::catch_unwind(move || {
         repeated_axis.transpose(&[0, 0]);
     });
 
     assert!(repeated_axis_result.is_err());
 
-    let mut out_of_bounds_axis = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
+    let out_of_bounds_axis = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
     let out_of_bounds_axis_result = panic::catch_unwind(move || {
         out_of_bounds_axis.transpose(&[0, 2]);
     });

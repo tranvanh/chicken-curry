@@ -397,12 +397,12 @@ impl TensorCore {
         self.map(|x| x.exp(), TensorOperation::Exp, tensor)
     }
 
-    pub(super) fn pow(&self, n: i32, tensor: &Tensor) -> Self {
-        self.map(|x| x.powi(n), TensorOperation::Pow, tensor)
+    pub(super) fn pow(&self, exponent: i32, tensor: &Tensor) -> Self {
+        self.map(|x| x.powi(exponent), TensorOperation::Pow{exponent}, tensor)
     }
 
-    pub(super) fn powf(&self, n: f32, tensor: &Tensor) -> Self {
-        self.map(|x| x.powf(n), TensorOperation::PowF, tensor)
+    pub(super) fn powf(&self, exponent: f32, tensor: &Tensor) -> Self {
+        self.map(|x| x.powf(exponent), TensorOperation::PowF{exponent}, tensor)
     }
 
     pub(super) fn sigmoid(&self, tensor: &Tensor) -> Self {
@@ -448,22 +448,16 @@ impl TensorCore {
 
     pub(super) fn mean(&self, tensor: &Tensor) -> Self {
         let output_size: usize = self.shape.iter().product();
-        let sum = self.sum_float();
-
-        TensorCore::new(
-            vec![1],
-            vec![sum / (output_size as f32)],
-            TensorOperation::Mean,
-            vec![tensor.clone()],
-        )
-        .unwrap()
+        let sum = self.sum(tensor);
+        let scale = 1.0 / output_size as f32;
+        sum.mul_scalar(scale, tensor)
     }
 
     pub(super) fn sum(&self, tensor: &Tensor) -> Self {
         TensorCore::new(
             vec![1],
             vec![self.sum_float()],
-            TensorOperation::Sum,
+            TensorOperation::Sum{axis: None, keep_shape: None },
             vec![tensor.clone()],
         )
         .unwrap()
@@ -473,7 +467,7 @@ impl TensorCore {
         TensorCore::new(
             vec![1],
             vec![self.max_float()],
-            TensorOperation::Max,
+            TensorOperation::Max{axis: None, keep_shape: None },
             vec![tensor.clone()],
         )
         .unwrap()
@@ -493,7 +487,7 @@ impl TensorCore {
         TensorCore::new(
             output_shape,
             result,
-            TensorOperation::Sum,
+            TensorOperation::Sum{axis: Some(axis), keep_shape: Some(keep_shape) },
             vec![tensor.clone()],
         )
         .unwrap()
@@ -521,7 +515,7 @@ impl TensorCore {
         TensorCore::new(
             output_shape,
             result,
-            TensorOperation::Max,
+            TensorOperation::Max{axis: Some(axis), keep_shape: Some(keep_shape) },
             vec![tensor.clone()],
         )
         .unwrap()

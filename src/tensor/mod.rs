@@ -107,15 +107,13 @@ impl Tensor {
     /// This is a view-style transpose: the shared data buffer is not reordered.
     /// Only shape and stride metadata change, so indexing follows the new
     /// logical shape while still reading from the same storage.
-    pub fn transpose(&mut self, axis: &[usize]) -> &Self {
-        Rc::make_mut(&mut self.core).transpose(axis);
-        self
+    pub fn transpose(&self, axis: &[usize]) -> Self {
+        Tensor::initialize(self.core.transpose(axis, &self))
     }
 
     /// Transposes the final two dimensions.
-    pub fn t(&mut self) -> &Self {
-        Rc::make_mut(&mut self.core).t();
-        self
+    pub fn t(&self) -> Self {
+        Tensor::initialize(self.core.t(&self))
     }
 
     // Traversal

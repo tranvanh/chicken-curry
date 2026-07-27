@@ -14,11 +14,20 @@ pub(super) enum TensorOperation {
     Sqrt,
     Neg,
     Exp,
-    Pow,
-    PowF,
-    Mean,
-    Sum,
-    Max,
+    Pow{
+        exponent: i32,
+    },
+    PowF{
+        exponent: f32,
+    },
+    Sum{
+        axis: Option<usize>,
+        keep_shape: Option<bool>,
+    },
+    Max{
+        axis: Option<usize>,
+        keep_shape: Option<bool>,
+    },
     Map,
     Sigmoid,
     Relu,

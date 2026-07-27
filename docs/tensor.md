@@ -244,7 +244,7 @@ Rank-one reductions use shape `[1]` instead of an empty scalar shape.
 General transposition is implemented by reordering axes:
 
 ```rust
-tensor.transpose(&[1, 0, 2]);
+let transposed = tensor.transpose(&[1, 0, 2]);
 ```
 
 Each value in the axis list selects which original axis becomes the axis at
@@ -261,7 +261,7 @@ axis  [1, 0, 2]
 The `t()` helper swaps only the final two dimensions:
 
 ```rust
-tensor.t();
+let transposed = tensor.t();
 ```
 
 Examples:
