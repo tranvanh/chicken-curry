@@ -20,12 +20,21 @@ pub mod activation {
     }
 
     pub fn softmax(tensor: &Tensor, axis: usize) -> Result<Tensor, TensorError> {
-        // \todo reduce heap allocation of temporary tensors
+        if axis >= tensor.rank() {
+            return Err(TensorError::OutOfBounds {
+                bound: tensor.rank(),
+                index: axis,
+            });
+        }
+
         let max = tensor.max_axis(axis, true);
-        let shifted = tensor - &max;
-        let exponential = shifted.exp();
-        let sums = exponential.sum_axis(axis, true);
-        return Ok(&exponential / &sums);
+        let mut result = tensor - &max;
+        result.exp_in_place();
+
+        let sums = result.sum_axis(axis, true);
+        result.div_in_place(&sums);
+
+        return Ok(result);
     }
 }
 

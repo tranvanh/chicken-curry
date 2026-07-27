@@ -1,3 +1,4 @@
+use chicken_curry::functions::{activation, loss};
 use chicken_curry::tensor::{Tensor, TensorError};
 use std::panic;
 
@@ -30,6 +31,14 @@ fn assert_close(actual: f32, expected: f32) {
         (actual - expected).abs() < tolerance,
         "expected {expected}, got {actual}"
     );
+}
+
+fn assert_values_close(actual: Vec<f32>, expected: Vec<f32>) {
+    assert_eq!(actual.len(), expected.len());
+
+    for i in 0..actual.len() {
+        assert_close(actual[i], expected[i]);
+    }
 }
 
 #[test]
@@ -99,6 +108,103 @@ fn initializers_reject_empty_dimensions() {
         Tensor::randn(vec![2, 0]),
         Err(TensorError::EmptyDimension)
     ));
+}
+
+#[test]
+fn activation_sigmoid_applies_elementwise() {
+    let tensor = Tensor::new(vec![3], vec![-1.0, 0.0, 1.0]).unwrap();
+
+    let result = activation::sigmoid(&tensor);
+
+    assert_values_close(
+        tensor_values(&result, &[3]),
+        vec![
+            1.0 / (1.0 + 1.0_f32.exp()),
+            0.5,
+            1.0 / (1.0 + (-1.0_f32).exp()),
+        ],
+    );
+}
+
+#[test]
+fn activation_relu_applies_elementwise() {
+    let tensor = Tensor::new(vec![3], vec![-2.0, 0.0, 3.0]).unwrap();
+
+    let result = activation::relu(&tensor);
+
+    assert_eq!(tensor_values(&result, &[3]), vec![0.0, 0.0, 3.0]);
+}
+
+#[test]
+fn activation_tanh_applies_elementwise() {
+    let tensor = Tensor::new(vec![3], vec![-1.0, 0.0, 1.0]).unwrap();
+
+    let result = activation::tanh(&tensor);
+
+    assert_values_close(
+        tensor_values(&result, &[3]),
+        vec![-1.0_f32.tanh(), 0.0, 1.0_f32.tanh()],
+    );
+}
+
+#[test]
+fn activation_softmax_normalizes_along_axis() {
+    let tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 1.0, 1.0, 1.0]).unwrap();
+
+    let result = activation::softmax(&tensor, 1).unwrap();
+
+    let row_one_denominator = (-2.0_f32).exp() + (-1.0_f32).exp() + 1.0;
+    assert_values_close(
+        tensor_values(&result, &[2, 3]),
+        vec![
+            (-2.0_f32).exp() / row_one_denominator,
+            (-1.0_f32).exp() / row_one_denominator,
+            1.0 / row_one_denominator,
+            1.0 / 3.0,
+            1.0 / 3.0,
+            1.0 / 3.0,
+        ],
+    );
+}
+
+#[test]
+fn activation_softmax_reports_out_of_bounds_axis() {
+    let tensor = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
+
+    let error = match activation::softmax(&tensor, 2) {
+        Err(error) => error,
+        Ok(_) => panic!("expected out-of-bounds axis"),
+    };
+
+    assert!(matches!(
+        error,
+        TensorError::OutOfBounds { bound: 2, index: 2 }
+    ));
+}
+
+#[test]
+fn loss_mse_matches_current_elementwise_implementation() {
+    let tensor = Tensor::new(vec![3], vec![-1.0, 0.0, 1.0]).unwrap();
+
+    let result = loss::mse(&tensor);
+
+    assert_values_close(
+        tensor_values(&result, &[3]),
+        vec![
+            1.0 / (1.0 + 1.0_f32.exp()),
+            0.5,
+            1.0 / (1.0 + (-1.0_f32).exp()),
+        ],
+    );
+}
+
+#[test]
+fn loss_cross_entropy_matches_current_elementwise_implementation() {
+    let tensor = Tensor::new(vec![3], vec![-2.0, 0.0, 3.0]).unwrap();
+
+    let result = loss::cross_entropy(&tensor);
+
+    assert_eq!(tensor_values(&result, &[3]), vec![0.0, 0.0, 3.0]);
 }
 
 #[test]

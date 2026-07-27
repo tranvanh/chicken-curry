@@ -189,6 +189,11 @@ impl Tensor {
         return Ok(&mut Arc::make_mut(&mut self.data)[flat_index]);
     }
 
+    /// Returns the number of dimensions in the tensor shape.
+    pub fn rank(&self) -> usize {
+        return self.shape.len();
+    }
+
     // Shape/index conversion helpers
 
     /// Calculates the shape produced by broadcasting two shapes together.
@@ -364,6 +369,38 @@ impl Tensor {
         }
 
         return Tensor::new(self.shape.clone(), result).unwrap();
+    }
+
+    /// Applies `f` to every element in place and returns the mutated tensor.
+    ///
+    /// Mutation follows logical tensor order and resolves each write through
+    /// shape/stride/offset metadata, so it works for strided views.
+    pub fn map_in_place<F>(&mut self, f: F) -> &mut Self
+    where
+        F: Fn(f32) -> f32,
+    {
+        let output_size: usize = self.shape.iter().product();
+
+        for i in 0..output_size {
+            let output_index = Tensor::unravel_index(i, &self.shape);
+            let flat_index =
+                Tensor::get_flat_index(&output_index, &self.shape, &self.strides, self.offset)
+                    .unwrap();
+            let data = Arc::make_mut(&mut self.data);
+            data[flat_index] = f(data[flat_index]);
+        }
+
+        return self;
+    }
+
+    /// Divides every element in place by `divisor`.
+    pub fn div_scalar_in_place(&mut self, divisor: f32) -> &mut Self {
+        return self.map_in_place(|x| x / divisor);
+    }
+
+    /// Applies exponential function elementwise in place.
+    pub fn exp_in_place(&mut self) -> &mut Self {
+        return self.map_in_place(|x| x.exp());
     }
 
     /// Visits every element in logical order.
@@ -569,9 +606,7 @@ impl Tensor {
         let mut result = self.sum_axis(axis, keep_shape);
         let divisor = self.shape[axis] as f32;
 
-        for value in Arc::make_mut(&mut result.data).iter_mut() {
-            *value /= divisor;
-        }
+        result.div_scalar_in_place(divisor);
 
         return result;
     }
@@ -619,6 +654,41 @@ impl Tensor {
         }
 
         return Tensor::new(output_shape, result).unwrap();
+    }
+
+    fn elementwise_binary_in_place<F>(&mut self, rhs: &Tensor, f: F) -> &mut Self
+    where
+        F: Fn(f32, f32) -> f32,
+    {
+        let output_shape = Tensor::get_broadcast_shape(&self.shape, &rhs.shape).unwrap();
+        if output_shape != self.shape {
+            panic!("In-place operation cannot change tensor shape");
+        }
+
+        let output_size: usize = self.shape.iter().product();
+        for i in 0..output_size {
+            let output_index = Tensor::unravel_index(i, &self.shape);
+            let lhs_flat =
+                Tensor::get_flat_index(&output_index, &self.shape, &self.strides, self.offset)
+                    .unwrap();
+            let rhs_index = Tensor::broadcast_index(&output_index, &rhs.shape);
+            let rhs_flat =
+                Tensor::get_flat_index(&rhs_index, &rhs.shape, &rhs.strides, rhs.offset).unwrap();
+            let data = Arc::make_mut(&mut self.data);
+            data[lhs_flat] = f(data[lhs_flat], rhs.data[rhs_flat]);
+        }
+
+        return self;
+    }
+
+    /// Subtracts `rhs` from this tensor in place using broadcasting.
+    pub fn sub_in_place(&mut self, rhs: &Tensor) -> &mut Self {
+        return self.elementwise_binary_in_place(rhs, |left, right| left - right);
+    }
+
+    /// Divides this tensor by `rhs` in place using broadcasting.
+    pub fn div_in_place(&mut self, rhs: &Tensor) -> &mut Self {
+        return self.elementwise_binary_in_place(rhs, |left, right| left / right);
     }
 
     fn multiply_elementwise(lhs: &Tensor, rhs: &Tensor) -> Tensor {
