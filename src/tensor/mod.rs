@@ -2,9 +2,12 @@ use std::fmt;
 use std::ops::{Add, Div, Mul, Sub};
 use std::rc::Rc;
 
-use crate::tensor_core::TensorCore;
+mod core;
+mod error;
 
-pub use crate::tensor_error::TensorError;
+use self::core::TensorCore;
+
+pub use self::error::TensorError;
 
 /// Public dense `f32` tensor handle.
 ///
@@ -22,7 +25,7 @@ impl Tensor {
         };
     }
 
-    pub(crate) fn core(&self) -> &TensorCore {
+    fn core(&self) -> &TensorCore {
         return &self.core;
     }
 

@@ -1,7 +1,6 @@
 /// Activation functions for tensors.
 pub mod activation {
-    use crate::tensor::Tensor;
-    use crate::tensor_error::TensorError;
+    use crate::tensor::{Tensor, TensorError};
 
     /// Applies sigmoid elementwise.
     pub fn sigmoid(tensor: &Tensor) -> Tensor {

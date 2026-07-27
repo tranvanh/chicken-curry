@@ -3,14 +3,14 @@ use std::sync::Arc;
 
 use rand::random;
 
-use crate::tensor_error::TensorError;
+use super::error::TensorError;
 
 /// Internal tensor representation.
 ///
 /// `Tensor` is the public API type. This core struct keeps storage, layout,
 /// and implementation details private to the crate.
 #[derive(Clone)]
-pub(crate) struct TensorCore {
+pub(super) struct TensorCore {
     shape: Vec<usize>,
     data: Arc<Vec<f32>>,
     strides: Vec<usize>,
@@ -20,7 +20,7 @@ pub(crate) struct TensorCore {
 impl TensorCore {
     // Constructors
 
-    pub(crate) fn new(shape: Vec<usize>, data: Vec<f32>) -> Result<Self, TensorError> {
+    pub(super) fn new(shape: Vec<usize>, data: Vec<f32>) -> Result<Self, TensorError> {
         if shape.iter().any(|&d| d == 0) {
             return Err(TensorError::EmptyDimension);
         }
@@ -41,28 +41,28 @@ impl TensorCore {
         })
     }
 
-    pub(crate) fn zeros(shape: Vec<usize>) -> Result<Self, TensorError> {
+    pub(super) fn zeros(shape: Vec<usize>) -> Result<Self, TensorError> {
         let size = shape.iter().product();
         return TensorCore::new(shape, vec![0.0; size]);
     }
 
-    pub(crate) fn ones(shape: Vec<usize>) -> Result<Self, TensorError> {
+    pub(super) fn ones(shape: Vec<usize>) -> Result<Self, TensorError> {
         let size = shape.iter().product();
         return TensorCore::new(shape, vec![1.0; size]);
     }
 
-    pub(crate) fn full(shape: Vec<usize>, x: f32) -> Result<Self, TensorError> {
+    pub(super) fn full(shape: Vec<usize>, x: f32) -> Result<Self, TensorError> {
         let size = shape.iter().product();
         return TensorCore::new(shape, vec![x; size]);
     }
 
-    pub(crate) fn rand(shape: Vec<usize>) -> Result<Self, TensorError> {
+    pub(super) fn rand(shape: Vec<usize>) -> Result<Self, TensorError> {
         let size = shape.iter().product();
         let data = (0..size).map(|_| random::<f32>()).collect();
         return TensorCore::new(shape, data);
     }
 
-    pub(crate) fn randn(shape: Vec<usize>) -> Result<Self, TensorError> {
+    pub(super) fn randn(shape: Vec<usize>) -> Result<Self, TensorError> {
         let size = shape.iter().product();
         let data = (0..size).map(|_| TensorCore::standard_normal()).collect();
         return TensorCore::new(shape, data);
@@ -129,19 +129,19 @@ impl TensorCore {
 
     // Element access
 
-    pub(crate) fn get(&self, index: &[usize]) -> Result<&f32, TensorError> {
+    pub(super) fn get(&self, index: &[usize]) -> Result<&f32, TensorError> {
         let flat_index =
             TensorCore::get_flat_index(index, &self.shape, &self.strides, self.offset)?;
         return Ok(&self.data[flat_index]);
     }
 
-    pub(crate) fn get_mut(&mut self, index: &[usize]) -> Result<&mut f32, TensorError> {
+    pub(super) fn get_mut(&mut self, index: &[usize]) -> Result<&mut f32, TensorError> {
         let flat_index =
             TensorCore::get_flat_index(index, &self.shape, &self.strides, self.offset)?;
         return Ok(&mut Arc::make_mut(&mut self.data)[flat_index]);
     }
 
-    pub(crate) fn rank(&self) -> usize {
+    pub(super) fn rank(&self) -> usize {
         return self.shape.len();
     }
 
@@ -211,7 +211,7 @@ impl TensorCore {
 
     // View operations
 
-    pub(crate) fn transpose(&mut self, axis: &[usize]) {
+    pub(super) fn transpose(&mut self, axis: &[usize]) {
         if self.shape.len() < 2 {
             panic!("Transposition requires tensors with at least 2 dimensions");
         }
@@ -243,7 +243,7 @@ impl TensorCore {
         self.strides = new_strides;
     }
 
-    pub(crate) fn t(&mut self) {
+    pub(super) fn t(&mut self) {
         if self.shape.len() < 2 {
             panic!("Matrix transposition requires tensors with at least 2 dimensions");
         }
@@ -255,7 +255,7 @@ impl TensorCore {
 
     // Traversal
 
-    pub(crate) fn map<F>(&self, f: F) -> Self
+    pub(super) fn map<F>(&self, f: F) -> Self
     where
         F: Fn(f32) -> f32,
     {
@@ -267,7 +267,7 @@ impl TensorCore {
         return TensorCore::new(self.shape.clone(), result).unwrap();
     }
 
-    pub(crate) fn visit<F>(&self, mut visitor: F)
+    pub(super) fn visit<F>(&self, mut visitor: F)
     where
         F: FnMut(f32),
     {
@@ -277,7 +277,7 @@ impl TensorCore {
         }
     }
 
-    pub(crate) fn visit_axis<F>(&self, axis: usize, mut visitor: F)
+    pub(super) fn visit_axis<F>(&self, axis: usize, mut visitor: F)
     where
         F: FnMut(&[usize], f32),
     {
@@ -358,31 +358,31 @@ impl TensorCore {
 
     // Unary elementwise operations
 
-    pub(crate) fn abs(&self) -> Self {
+    pub(super) fn abs(&self) -> Self {
         return self.map(|x| x.abs());
     }
 
-    pub(crate) fn sqrt(&self) -> Self {
+    pub(super) fn sqrt(&self) -> Self {
         return self.map(|x| x.sqrt());
     }
 
-    pub(crate) fn ln(&self) -> Self {
+    pub(super) fn ln(&self) -> Self {
         return self.map(|x| x.ln());
     }
 
-    pub(crate) fn neg(&self) -> Self {
+    pub(super) fn neg(&self) -> Self {
         return self.map(|x| -1.0 * x);
     }
 
-    pub(crate) fn exp(&self) -> Self {
+    pub(super) fn exp(&self) -> Self {
         return self.map(|x| x.exp());
     }
 
-    pub(crate) fn pow(&self, n: i32) -> Self {
+    pub(super) fn pow(&self, n: i32) -> Self {
         return self.map(|x| x.powi(n));
     }
 
-    pub(crate) fn powf(&self, n: f32) -> Self {
+    pub(super) fn powf(&self, n: f32) -> Self {
         return self.map(|x| x.powf(n));
     }
 
@@ -404,22 +404,22 @@ impl TensorCore {
         return max;
     }
 
-    pub(crate) fn mean(&self) -> Self {
+    pub(super) fn mean(&self) -> Self {
         let output_size: usize = self.shape.iter().product();
         let sum = self.sum_float();
 
         return TensorCore::new(vec![1], vec![sum / (output_size as f32)]).unwrap();
     }
 
-    pub(crate) fn sum(&self) -> Self {
+    pub(super) fn sum(&self) -> Self {
         return TensorCore::new(vec![1], vec![self.sum_float()]).unwrap();
     }
 
-    pub(crate) fn max(&self) -> Self {
+    pub(super) fn max(&self) -> Self {
         return TensorCore::new(vec![1], vec![self.max_float()]).unwrap();
     }
 
-    pub(crate) fn sum_axis(&self, axis: usize, keep_shape: bool) -> Self {
+    pub(super) fn sum_axis(&self, axis: usize, keep_shape: bool) -> Self {
         let reduced_shape = TensorCore::shape_without_axis(&self.shape, axis);
         let output_shape = TensorCore::reduced_shape(&self.shape, axis, keep_shape);
         let output_size: usize = reduced_shape.iter().product();
@@ -433,14 +433,14 @@ impl TensorCore {
         return TensorCore::new(output_shape, result).unwrap();
     }
 
-    pub(crate) fn mean_axis(&self, axis: usize, keep_shape: bool) -> Self {
+    pub(super) fn mean_axis(&self, axis: usize, keep_shape: bool) -> Self {
         let result = self.sum_axis(axis, keep_shape);
         let scale = 1.0 / self.shape[axis] as f32;
 
         return result.mul_scalar(scale);
     }
 
-    pub(crate) fn max_axis(&self, axis: usize, keep_shape: bool) -> Self {
+    pub(super) fn max_axis(&self, axis: usize, keep_shape: bool) -> Self {
         let reduced_shape = TensorCore::shape_without_axis(&self.shape, axis);
         let output_shape = TensorCore::reduced_shape(&self.shape, axis, keep_shape);
         let output_size: usize = reduced_shape.iter().product();
@@ -483,23 +483,23 @@ impl TensorCore {
         return TensorCore::new(output_shape, result).unwrap();
     }
 
-    pub(crate) fn add(lhs: &Self, rhs: &Self) -> Self {
+    pub(super) fn add(lhs: &Self, rhs: &Self) -> Self {
         return TensorCore::elementwise_binary(lhs, rhs, |left, right| left + right);
     }
 
-    pub(crate) fn sub(lhs: &Self, rhs: &Self) -> Self {
+    pub(super) fn sub(lhs: &Self, rhs: &Self) -> Self {
         return TensorCore::elementwise_binary(lhs, rhs, |left, right| left - right);
     }
 
-    pub(crate) fn div(lhs: &Self, rhs: &Self) -> Self {
+    pub(super) fn div(lhs: &Self, rhs: &Self) -> Self {
         return TensorCore::elementwise_binary(lhs, rhs, |left, right| left / right);
     }
 
-    pub(crate) fn multiply_elementwise(lhs: &Self, rhs: &Self) -> Self {
+    pub(super) fn multiply_elementwise(lhs: &Self, rhs: &Self) -> Self {
         return TensorCore::elementwise_binary(lhs, rhs, |left, right| left * right);
     }
 
-    pub(crate) fn mul_scalar(&self, scalar: f32) -> Self {
+    pub(super) fn mul_scalar(&self, scalar: f32) -> Self {
         return self.map(|x| scalar * x);
     }
 
@@ -553,7 +553,7 @@ impl TensorCore {
         return result;
     }
 
-    pub(crate) fn mulmat(lhs: &Self, rhs: &Self) -> Self {
+    pub(super) fn mulmat(lhs: &Self, rhs: &Self) -> Self {
         if lhs.shape.len() < 2 || rhs.shape.len() < 2 {
             panic!("Matrix multiplication requires tensors with at least 2 dimensions");
         }
@@ -634,7 +634,7 @@ impl TensorCore {
         return Ok(());
     }
 
-    pub(crate) fn format(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    pub(super) fn format(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.shape.len() == 0 {
             return write!(f, "Empty");
         }
