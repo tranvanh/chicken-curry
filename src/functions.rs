@@ -4,24 +4,17 @@ pub mod activation {
 
     /// Applies sigmoid elementwise.
     pub fn sigmoid(tensor: &Tensor) -> Tensor {
-        return tensor.map(|x| {
-            if x >= 0.0 {
-                1.0 / (1.0 + (-x).exp())
-            } else {
-                let e = x.exp();
-                e / (1.0 + e)
-            }
-        });
+        tensor.sigmoid()
     }
 
     /// Applies rectified linear unit elementwise.
     pub fn relu(tensor: &Tensor) -> Tensor {
-        tensor.map(|x| x.max(0.0))
+        tensor.relu()
     }
 
     /// Applies hyperbolic tangent elementwise.
     pub fn tanh(tensor: &Tensor) -> Tensor {
-        tensor.map(|x| x.tanh())
+        tensor.tanh()
     }
 
     /// Applies numerically stable softmax along `axis`.
@@ -37,12 +30,11 @@ pub mod activation {
         }
 
         let max = tensor.max_axis(axis, true);
-        let mut result = tensor - &max;
-        result.exp_in_place();
+        let shifted = tensor - &max;
+        let exponential = shifted.exp();
+        let sums = exponential.sum_axis(axis, true);
 
-        let sums = result.sum_axis(axis, true);
-        result.div_in_place(&sums);
-        Ok(result)
+        Ok(&exponential / &sums)
     }
 }
 
@@ -54,19 +46,17 @@ pub mod loss {
     ///
     /// The result is a one-element tensor containing `mean((pred - target)^2)`.
     pub fn mse(pred: &Tensor, target: &Tensor) -> Tensor {
-        let mut result = pred - target;
-        result.pow_inplace(2);
-        result.mean()
+        let difference = pred - target;
+        difference.pow(2).mean()
     }
 
     /// Returns per-sample categorical cross entropy from probabilities.
     ///
-    /// `pred` is expected to contain probabilities, not logits. Values are
-    /// clamped to `1e-7` before `ln` to avoid `ln(0)`. The loss is summed along
-    /// `axis`, so that axis is removed from the output shape.
+    /// `pred` is expected to contain probabilities, not logits. Values are used
+    /// directly, so zero probabilities produce infinite loss. The loss is summed
+    /// along `axis`, so that axis is removed from the output shape.
     pub fn cross_entropy(pred: &Tensor, target: &Tensor, axis: usize) -> Tensor {
-        let pred_ln = pred.map(|x| x.max(1e-7).ln());
-        Tensor::multiply_elementwise(&pred_ln, target)
+        Tensor::multiply_elementwise(&pred.ln(), target)
             .sum_axis(axis, false)
             .neg()
     }

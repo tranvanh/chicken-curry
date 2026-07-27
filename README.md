@@ -36,9 +36,9 @@ Implemented so far:
 - display formatting
 - broadcasted tensor addition, subtraction, and division
 - scalar multiplication
-- elementwise multiplication for operands with rank less than 2
+- explicit broadcasted elementwise multiplication
 - view-style tensor transposition
-- unary elementwise transforms and selected in-place transforms
+- unary elementwise transforms
 - tensor reductions over all elements and along a selected axis
 - matrix multiplication
 - broadcasted batched matrix multiplication
@@ -46,10 +46,10 @@ Implemented so far:
 - loss functions: mean squared error and categorical cross entropy from
   probabilities
 - basic tensor error variants
-- Rust tests for tensor creation, initializers, indexing, addition, scalar
-  multiplication, unary operations, transposition, matrix multiplication,
-  batched matrix multiplication, broadcasting, reductions, activation/loss
-  functions, view behavior, and failure paths
+- Rust tests for tensor creation, initializers, indexing, mutable writes,
+  addition, scalar multiplication, unary operations, transposition, matrix
+  multiplication, batched matrix multiplication, broadcasting, reductions,
+  activation/loss functions, view behavior, and failure paths
 
 ## Documentation
 
@@ -65,7 +65,7 @@ cargo test
 ```
 
 The test suite currently covers tensor construction, initializers, indexing,
-arithmetic, unary and in-place operations, reductions, activation and loss
+mutable writes, arithmetic, unary operations, reductions, activation and loss
 functions, transposition, matrix multiplication, batched matrix multiplication,
 broadcasting, view behavior, and several failure paths.
 

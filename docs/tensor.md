@@ -11,7 +11,7 @@ pub struct Tensor
 Internally, a tensor stores:
 
 - `shape: Vec<usize>` - dimensions of the tensor
-- `data: Arc<Vec<f32>>` - shared flat storage
+- `data: Rc<Vec<f32>>` - shared flat storage
 - `strides: Vec<usize>` - strides used to map multidimensional indices into
   the shared storage
 - `offset: usize` - starting position in the shared storage
@@ -100,7 +100,7 @@ Mutable access is available through:
 ```
 
 If a tensor shares its storage with another tensor, mutable access uses
-copy-on-write through `Arc::make_mut`.
+copy-on-write through `Rc::make_mut`.
 
 The tensor rank can be queried with:
 
@@ -147,15 +147,13 @@ across the other operand:
 
 If shapes cannot be broadcast together, the current implementation panics.
 
-In-place subtraction and division are also available:
+Elementwise multiplication is available through an explicit helper:
 
 ```rust
-tensor.sub_in_place(&rhs);
-tensor.div_in_place(&rhs);
+let result = Tensor::multiply_elementwise(&left, &right);
 ```
 
-These operations use broadcasting, but the broadcasted output shape must match
-the left-hand tensor shape because the tensor is mutated in place.
+It uses the same broadcasting rules as addition, subtraction, and division.
 
 ## Scalar Multiplication
 
@@ -171,7 +169,6 @@ Every element in the tensor is multiplied by the scalar.
 
 Unary tensor operations are implemented as `Tensor` methods:
 
-- `map`
 - `abs`
 - `sqrt`
 - `ln`
@@ -179,14 +176,17 @@ Unary tensor operations are implemented as `Tensor` methods:
 - `exp`
 - `pow`
 - `powf`
+- `sigmoid`
+- `relu`
+- `tanh`
 
-The `map` method applies a function to every logical element and returns a new
-materialized tensor.
+Unary operations apply to every logical element and return a new materialized
+tensor.
 
-With the view-style storage model, `map` cannot simply walk the raw shared
-storage buffer. A tensor may be non-contiguous after operations such as
-transpose, so `map` iterates over the tensor's logical output indexes and uses
-shape, stride, and offset metadata to find each input value.
+With the view-style storage model, unary operations cannot simply walk the raw
+shared storage buffer. A tensor may be non-contiguous after operations such as
+transpose, so unary operations iterate over the tensor's logical output indexes
+and use shape, stride, and offset metadata to find each input value.
 
 For example:
 
@@ -201,28 +201,15 @@ strides: [1, 3]
 logical: [[1, 4], [2, 5], [3, 6]]
 ```
 
-Applying `map(|x| x * 10.0)` to the transposed view must produce logical
-values:
+Applying a unary operation to the transposed view must follow the logical values
+rather than the raw storage order. For example, scaling those values by `10.0`
+would produce:
 
 ```text
 [[10, 40], [20, 50], [30, 60]]
 ```
 
 The result is returned as a new contiguous tensor.
-
-Some in-place unary transforms are available:
-
-```rust
-tensor.map_in_place(|x| x * 2.0);
-tensor.exp_in_place();
-tensor.neg_inplace();
-tensor.pow_inplace(2);
-tensor.div_scalar_in_place(3.0);
-```
-
-In-place transforms mutate the logical tensor values. They remain correct for
-strided views because each write is resolved through shape, stride, and offset
-metadata.
 
 ## Reductions
 
@@ -257,7 +244,7 @@ Rank-one reductions use shape `[1]` instead of an empty scalar shape.
 General transposition is implemented by reordering axes:
 
 ```rust
-tensor.transpose(&[1, 0, 2]);
+let transposed = tensor.transpose(&[1, 0, 2]);
 ```
 
 Each value in the axis list selects which original axis becomes the axis at
@@ -274,7 +261,7 @@ axis  [1, 0, 2]
 The `t()` helper swaps only the final two dimensions:
 
 ```rust
-tensor.t();
+let transposed = tensor.t();
 ```
 
 Examples:
@@ -285,7 +272,7 @@ Examples:
 [4, 5, 2, 3] -> [4, 5, 3, 2]
 ```
 
-Transpose is view-style. It does not reorder the underlying `Arc<Vec<f32>>`.
+Transpose is view-style. It does not reorder the underlying `Rc<Vec<f32>>`.
 Instead, it reorders `shape` and `strides`.
 
 Example:
@@ -306,22 +293,11 @@ offset `0 * 1 + 1 * 3 = 3`, which reads value `4`.
 
 ## Matrix Multiplication
 
-The `*` operator has two tensor behaviors:
-
-- if either operand has rank less than 2, multiplication is elementwise with
-  broadcasting
-- if both operands have rank 2 or greater, multiplication is matrix
-  multiplication over the final two dimensions
+The `*` operator is matrix multiplication only. Both operands must have rank 2
+or greater. The final two dimensions are treated as matrix dimensions:
 
 ```rust
 let result = &left * &right;
-```
-
-Rank-1 elementwise examples:
-
-```text
-[3] * [3] -> [3]
-[2, 3] * [3] -> [2, 3]
 ```
 
 For 2D tensors:
@@ -430,10 +406,11 @@ rhs matrix at batch `[0, 3]`.
 
 The current implementation panics when:
 
+- either operand has fewer than 2 dimensions
 - leading batch dimensions cannot be broadcast together
 - the inner matrix dimensions do not match
 
-If either operand has fewer than 2 dimensions, `*` uses elementwise
+Use `Tensor::multiply_elementwise` when you want broadcasted elementwise
 multiplication instead of matrix multiplication.
 
 ## Functions
