@@ -18,7 +18,9 @@ pub(super) struct TensorCore {
     strides: Vec<usize>,
     offset: usize,
 
+    #[allow(dead_code)]
     creator: TensorOperation,
+    #[allow(dead_code)]
     parents: Vec<Tensor>,
 }
 
@@ -382,7 +384,7 @@ impl TensorCore {
     }
 
     pub(super) fn neg(&self, tensor: &Tensor) -> Self {
-        self.map(|x| -1.0 * x,TensorOperation::Neg, tensor)
+        self.map(|x| -1.0 * x, TensorOperation::Neg, tensor)
     }
 
     pub(super) fn exp(&self, tensor: &Tensor) -> Self {
@@ -390,11 +392,34 @@ impl TensorCore {
     }
 
     pub(super) fn pow(&self, n: i32, tensor: &Tensor) -> Self {
-        self.map(|x| x.powi(n),  TensorOperation::Pow, tensor)
+        self.map(|x| x.powi(n), TensorOperation::Pow, tensor)
     }
 
     pub(super) fn powf(&self, n: f32, tensor: &Tensor) -> Self {
         self.map(|x| x.powf(n), TensorOperation::PowF, tensor)
+    }
+
+    pub(super) fn sigmoid(&self, tensor: &Tensor) -> Self {
+        self.map(
+            |x| {
+                if x >= 0.0 {
+                    1.0 / (1.0 + (-x).exp())
+                } else {
+                    let e = x.exp();
+                    e / (1.0 + e)
+                }
+            },
+            TensorOperation::Sigmoid,
+            tensor,
+        )
+    }
+
+    pub(super) fn relu(&self, tensor: &Tensor) -> Self {
+        self.map(|x| x.max(0.0), TensorOperation::Relu, tensor)
+    }
+
+    pub(super) fn tanh(&self, tensor: &Tensor) -> Self {
+        self.map(|x| x.tanh(), TensorOperation::Tanh, tensor)
     }
 
     // Reductions
@@ -429,11 +454,23 @@ impl TensorCore {
     }
 
     pub(super) fn sum(&self, tensor: &Tensor) -> Self {
-        TensorCore::new(vec![1], vec![self.sum_float()], TensorOperation::Sum, vec![tensor.clone()]).unwrap()
+        TensorCore::new(
+            vec![1],
+            vec![self.sum_float()],
+            TensorOperation::Sum,
+            vec![tensor.clone()],
+        )
+        .unwrap()
     }
 
     pub(super) fn max(&self, tensor: &Tensor) -> Self {
-        TensorCore::new(vec![1], vec![self.max_float()], TensorOperation::Max, vec![tensor.clone()]).unwrap()
+        TensorCore::new(
+            vec![1],
+            vec![self.max_float()],
+            TensorOperation::Max,
+            vec![tensor.clone()],
+        )
+        .unwrap()
     }
 
     pub(super) fn sum_axis(&self, axis: usize, keep_shape: bool, tensor: &Tensor) -> Self {
@@ -447,7 +484,13 @@ impl TensorCore {
             result[output_flat] += value;
         });
 
-        TensorCore::new(output_shape, result, TensorOperation::Sum, vec![tensor.clone()]).unwrap()
+        TensorCore::new(
+            output_shape,
+            result,
+            TensorOperation::Sum,
+            vec![tensor.clone()],
+        )
+        .unwrap()
     }
 
     pub(super) fn mean_axis(&self, axis: usize, keep_shape: bool, tensor: &Tensor) -> Self {
@@ -469,19 +512,31 @@ impl TensorCore {
             }
         });
 
-        TensorCore::new(output_shape, result, TensorOperation::Max, vec![tensor.clone()]).unwrap()
+        TensorCore::new(
+            output_shape,
+            result,
+            TensorOperation::Max,
+            vec![tensor.clone()],
+        )
+        .unwrap()
     }
 
     // Binary elementwise helpers
 
-    fn elementwise_binary<F>(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor), f: F, operation: TensorOperation) -> Self
+    fn elementwise_binary<F>(
+        lhs: (&Self, &Tensor),
+        rhs: (&Self, &Tensor),
+        f: F,
+        operation: TensorOperation,
+    ) -> Self
     where
         F: Fn(f32, f32) -> f32,
     {
         let lhs_core = lhs.0;
         let rhs_core = rhs.0;
 
-        let output_shape = TensorCore::get_broadcast_shape(&lhs_core.shape, &rhs_core.shape).unwrap();
+        let output_shape =
+            TensorCore::get_broadcast_shape(&lhs_core.shape, &rhs_core.shape).unwrap();
         let output_size: usize = output_shape.iter().product();
         let mut result: Vec<f32> = Vec::with_capacity(output_size);
 
@@ -489,17 +544,31 @@ impl TensorCore {
             let output_index = TensorCore::unravel_index(i, &output_shape);
             let lhs_index = TensorCore::broadcast_index(&output_index, &lhs_core.shape);
             let rhs_index = TensorCore::broadcast_index(&output_index, &rhs_core.shape);
-            let lhs_flat =
-                TensorCore::get_flat_index(&lhs_index, &lhs_core.shape, &lhs_core.strides, lhs_core.offset)
-                    .unwrap();
-            let rhs_flat =
-                TensorCore::get_flat_index(&rhs_index, &rhs_core.shape, &rhs_core.strides, rhs_core.offset)
-                    .unwrap();
+            let lhs_flat = TensorCore::get_flat_index(
+                &lhs_index,
+                &lhs_core.shape,
+                &lhs_core.strides,
+                lhs_core.offset,
+            )
+            .unwrap();
+            let rhs_flat = TensorCore::get_flat_index(
+                &rhs_index,
+                &rhs_core.shape,
+                &rhs_core.strides,
+                rhs_core.offset,
+            )
+            .unwrap();
 
             result.push(f(lhs_core.data[lhs_flat], rhs_core.data[rhs_flat]));
         }
 
-        TensorCore::new(output_shape, result, operation, vec![lhs.1.clone(), lhs.1.clone()]).unwrap()
+        TensorCore::new(
+            output_shape,
+            result,
+            operation,
+            vec![lhs.1.clone(), lhs.1.clone()],
+        )
+        .unwrap()
     }
 
     pub(super) fn add(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor)) -> Self {
@@ -515,7 +584,12 @@ impl TensorCore {
     }
 
     pub(super) fn multiply_elementwise(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor)) -> Self {
-        TensorCore::elementwise_binary(lhs, rhs, |left, right| left * right, TensorOperation::ElemMul)
+        TensorCore::elementwise_binary(
+            lhs,
+            rhs,
+            |left, right| left * right,
+            TensorOperation::ElemMul,
+        )
     }
 
     pub(super) fn mul_scalar(&self, scalar: f32, tensor: &Tensor) -> Self {

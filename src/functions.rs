@@ -4,24 +4,17 @@ pub mod activation {
 
     /// Applies sigmoid elementwise.
     pub fn sigmoid(tensor: &Tensor) -> Tensor {
-        tensor.map(|x| {
-            if x >= 0.0 {
-                1.0 / (1.0 + (-x).exp())
-            } else {
-                let e = x.exp();
-                e / (1.0 + e)
-            }
-        })
+        tensor.sigmoid()
     }
 
     /// Applies rectified linear unit elementwise.
     pub fn relu(tensor: &Tensor) -> Tensor {
-        tensor.map(|x| x.max(0.0))
+        tensor.relu()
     }
 
     /// Applies hyperbolic tangent elementwise.
     pub fn tanh(tensor: &Tensor) -> Tensor {
-        tensor.map(|x| x.tanh())
+        tensor.tanh()
     }
 
     /// Applies numerically stable softmax along `axis`.
@@ -63,8 +56,7 @@ pub mod loss {
     /// clamped to `1e-7` before `ln` to avoid `ln(0)`. The loss is summed along
     /// `axis`, so that axis is removed from the output shape.
     pub fn cross_entropy(pred: &Tensor, target: &Tensor, axis: usize) -> Tensor {
-        let pred_ln = pred.map(|x| x.max(1e-7).ln());
-        Tensor::multiply_elementwise(&pred_ln, target)
+        Tensor::multiply_elementwise(&pred.ln(), target)
             .sum_axis(axis, false)
             .neg()
     }

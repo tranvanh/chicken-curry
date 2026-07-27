@@ -1,5 +1,6 @@
 #[derive(Clone)]
-pub (super) enum TensorOperation{
+#[allow(dead_code)]
+pub(super) enum TensorOperation {
     Constant,
     Add,
     Sub,
@@ -19,4 +20,7 @@ pub (super) enum TensorOperation{
     Sum,
     Max,
     Map,
+    Sigmoid,
+    Relu,
+    Tanh,
 }
