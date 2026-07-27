@@ -69,12 +69,37 @@ impl Tensor{
         return Tensor::new(shape, vec![x; size]);
     }
 
-    pub fn rand(shape: Vec<usize>, data: Vec<f32>) -> Result<Self, TensorError>{
-        todo!()
+    /// Creates a tensor filled with uniformly distributed random values.
+    ///
+    /// Each element is sampled from the half-open range `[0, 1)`.
+    /// Shape validation is delegated to `Tensor::new`, so empty dimensions are
+    /// rejected the same way as other constructors.
+    pub fn rand(shape: Vec<usize>) -> Result<Self, TensorError>{
+        let size = shape.iter().product();
+        let data = (0..size).map(|_| random::<f32>()).collect();
+        return Tensor::new(shape, data);
     }
 
-    pub fn randn(shape: Vec<usize>, data: Vec<f32>) -> Result<Self, TensorError>{
-        todo!()
+    /// Creates a tensor filled with standard normally distributed random values.
+    ///
+    /// The generated values have mean `0` and standard deviation `1`. Unlike
+    /// `rand`, these values are not constrained to `[0, 1)`.
+    /// Shape validation is delegated to `Tensor::new`.
+    pub fn randn(shape: Vec<usize>) -> Result<Self, TensorError>{
+        let size = shape.iter().product();
+        let data = (0..size).map(|_| Tensor::standard_normal()).collect();
+        return Tensor::new(shape, data);
+    }
+
+    /// Samples one value from the standard normal distribution.
+    ///
+    /// Uses the Box-Muller transform to convert two uniform random values into
+    /// one normally distributed value. `u1` is clamped away from zero because
+    /// `ln(0)` is negative infinity.
+    fn standard_normal() -> f32 {
+        let u1 = random::<f32>().max(f32::MIN_POSITIVE);
+        let u2 = random::<f32>();
+        return (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos();
     }
 
     fn get_flat_index(&self, index: &[usize]) -> Result<usize, TensorError> {
