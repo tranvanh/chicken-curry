@@ -217,6 +217,7 @@ impl Tensor{
         return result;
     }
 
+    /// Transposition according to new input axis mapping
     pub fn transpose(&mut self, axis : &[usize]) -> &Self{
         if self.shape.len() < 2 {
             panic!("Matrix multiplication requires tensors with at least 2 dimensions");
@@ -232,6 +233,7 @@ impl Tensor{
         return self;
     }
 
+    /// Transposition of last two dimensions
     pub fn t(&mut self) -> &Self{
         if self.shape.len() < 2 {
             panic!("Matrix transposition requires tensors with at least 2 dimensions");
