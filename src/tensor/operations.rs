@@ -28,7 +28,6 @@ pub(super) enum TensorOperation {
         axis: Option<usize>,
         keep_shape: Option<bool>,
     },
-    Map,
     Sigmoid,
     Relu,
     Tanh,

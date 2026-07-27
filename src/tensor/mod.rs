@@ -117,18 +117,6 @@ impl Tensor {
     }
 
     // Traversal
-
-    /// Applies `f` to every element and returns a contiguous result tensor.
-    ///
-    /// Values are read in logical order, so this works correctly for strided
-    /// views such as transposed tensors.
-    pub fn map<F>(&self, f: F) -> Self
-    where
-        F: Fn(f32) -> f32,
-    {
-        Tensor::initialize(self.core.map(f, TensorOperation::Map, &self))
-    }
-
     /// Visits every element in logical order.
     pub fn visit<F>(&self, visitor: F)
     where
