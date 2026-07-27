@@ -507,6 +507,7 @@ impl Tensor {
         return self.map(|x| -1.0 * x);
     }
 
+    /// Negates every element in place.
     pub fn neg_inplace(&mut self) -> &Self {
         return self.map_in_place(|x| -1.0 * x);
     }
@@ -520,6 +521,8 @@ impl Tensor {
     pub fn pow(&self, n: i32) -> Self {
         return self.map(|x| x.powi(n));
     }
+
+    /// Raises every element to the integer power `n` in place.
     pub fn pow_inplace(&mut self, n: i32) -> &Self {
         return self.map_in_place(|x| x.powi(n));
     }
@@ -676,6 +679,7 @@ impl Tensor {
         return self.elementwise_binary_in_place(rhs, |left, right| left / right);
     }
 
+    /// Multiplies tensors elementwise using broadcasting.
     pub fn multiply_elementwise(lhs: &Tensor, rhs: &Tensor) -> Tensor {
         return Tensor::elementwise_binary(lhs, rhs, |left, right| left * right);
     }

@@ -32,25 +32,31 @@ Implemented so far:
   values
 - shared-storage tensor views using shape, stride, and offset metadata
 - row-major stride calculation
-- indexed tensor reads
+- indexed tensor reads and mutable writes
 - display formatting
-- broadcasted tensor addition
+- broadcasted tensor addition, subtraction, and division
 - scalar multiplication
-- elementwise multiplication for rank-1 tensor operands
+- elementwise multiplication for operands with rank less than 2
 - view-style tensor transposition
-- unary elementwise transforms
+- unary elementwise transforms and selected in-place transforms
+- tensor reductions over all elements and along a selected axis
 - matrix multiplication
 - broadcasted batched matrix multiplication
+- activation functions: sigmoid, ReLU, tanh, and softmax
+- loss functions: mean squared error and categorical cross entropy from
+  probabilities
 - basic tensor error variants
 - Rust tests for tensor creation, initializers, indexing, addition, scalar
   multiplication, unary operations, transposition, matrix multiplication,
-  batched matrix multiplication, broadcasting, view behavior, and failure paths
+  batched matrix multiplication, broadcasting, reductions, activation/loss
+  functions, view behavior, and failure paths
 
 ## Documentation
 
 - [Tensor](docs/tensor.md) - tensor API, initializers, view storage, indexing,
-  arithmetic, transposition, unary operations, matrix multiplication, and
-  broadcasting notes
+  arithmetic, reductions, transposition, matrix multiplication, and broadcasting
+  notes
+- [Functions](docs/functions.md) - activation and loss functions
 
 ## Running Tests
 
@@ -59,8 +65,9 @@ cargo test
 ```
 
 The test suite currently covers tensor construction, initializers, indexing,
-arithmetic, unary operations, transposition, matrix multiplication, batched
-matrix multiplication, broadcasting, view behavior, and several failure paths.
+arithmetic, unary and in-place operations, reductions, activation and loss
+functions, transposition, matrix multiplication, batched matrix multiplication,
+broadcasting, view behavior, and several failure paths.
 
 ## Continuous Integration
 
