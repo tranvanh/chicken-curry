@@ -257,7 +257,7 @@ impl TensorCore {
             data: self.data.clone(),
             strides: new_strides,
             offset: self.offset,
-            creator: TensorOperation::Transpose,
+            creator: TensorOperation::Transpose{axis: axis.to_vec()},
             parents: vec![tensor.clone()],
         }
     }
@@ -448,9 +448,9 @@ impl TensorCore {
 
     pub(super) fn mean(&self, tensor: &Tensor) -> Self {
         let output_size: usize = self.shape.iter().product();
-        let sum = self.sum(tensor);
+        let sum = Tensor::initialize(self.sum(tensor));
         let scale = 1.0 / output_size as f32;
-        sum.mul_scalar(scale, tensor)
+        sum.core.mul_scalar(scale, &sum)
     }
 
     pub(super) fn sum(&self, tensor: &Tensor) -> Self {
@@ -494,9 +494,9 @@ impl TensorCore {
     }
 
     pub(super) fn mean_axis(&self, axis: usize, keep_shape: bool, tensor: &Tensor) -> Self {
-        let result = self.sum_axis(axis, keep_shape, tensor);
+        let result = Tensor::initialize(self.sum_axis(axis, keep_shape, tensor));
         let scale = 1.0 / self.shape[axis] as f32;
-        result.mul_scalar(scale, tensor)
+        result.core.mul_scalar(scale, &result)
     }
 
     pub(super) fn max_axis(&self, axis: usize, keep_shape: bool, tensor: &Tensor) -> Self {

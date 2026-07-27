@@ -8,7 +8,9 @@ pub(super) enum TensorOperation {
     ScalMul,
     ElemMul,
     MatMul,
-    Transpose,
+    Transpose{
+        axis: Vec<usize>,
+    },
     Abs,
     Ln,
     Sqrt,
