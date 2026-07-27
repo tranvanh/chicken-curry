@@ -357,35 +357,6 @@ impl Tensor {
         return Tensor::new(self.shape.clone(), result).unwrap();
     }
 
-    /// Applies `f` to every element in place and returns the mutated tensor.
-    ///
-    /// Mutation follows logical tensor order and resolves each write through
-    /// shape/stride/offset metadata, so it works for strided views.
-    pub fn map_in_place<F>(&mut self, f: F) -> &mut Self
-    where
-        F: Fn(f32) -> f32,
-    {
-        let output_size: usize = self.shape.iter().product();
-
-        for i in 0..output_size {
-            let flat_index = self.logical_flat_index(i);
-            let data = Arc::make_mut(&mut self.data);
-            data[flat_index] = f(data[flat_index]);
-        }
-
-        return self;
-    }
-
-    /// Divides every element in place by `divisor`.
-    pub fn div_scalar_in_place(&mut self, divisor: f32) -> &mut Self {
-        return self.map_in_place(|x| x / divisor);
-    }
-
-    /// Applies exponential function elementwise in place.
-    pub fn exp_in_place(&mut self) -> &mut Self {
-        return self.map_in_place(|x| x.exp());
-    }
-
     /// Visits every element in logical order.
     pub fn visit<F>(&self, mut visitor: F)
     where
@@ -507,11 +478,6 @@ impl Tensor {
         return self.map(|x| -1.0 * x);
     }
 
-    /// Negates every element in place.
-    pub fn neg_inplace(&mut self) -> &Self {
-        return self.map_in_place(|x| -1.0 * x);
-    }
-
     /// Applies exponential function elementwise.
     pub fn exp(&self) -> Self {
         return self.map(|x| x.exp());
@@ -520,11 +486,6 @@ impl Tensor {
     /// Raises every element to the integer power `n`.
     pub fn pow(&self, n: i32) -> Self {
         return self.map(|x| x.powi(n));
-    }
-
-    /// Raises every element to the integer power `n` in place.
-    pub fn pow_inplace(&mut self, n: i32) -> &Self {
-        return self.map_in_place(|x| x.powi(n));
     }
 
     /// Raises every element to the floating-point power `n`.
@@ -591,12 +552,10 @@ impl Tensor {
     /// If `keep_shape` is true, the reduced axis remains in the output shape
     /// with size `1`; otherwise the axis is removed.
     pub fn mean_axis(&self, axis: usize, keep_shape: bool) -> Self {
-        let mut result = self.sum_axis(axis, keep_shape);
-        let divisor = self.shape[axis] as f32;
+        let result = self.sum_axis(axis, keep_shape);
+        let scale = 1.0 / self.shape[axis] as f32;
 
-        result.div_scalar_in_place(divisor);
-
-        return result;
+        return scale * &result;
     }
 
     /// Takes the maximum value along `axis`.
@@ -642,41 +601,6 @@ impl Tensor {
         }
 
         return Tensor::new(output_shape, result).unwrap();
-    }
-
-    fn elementwise_binary_in_place<F>(&mut self, rhs: &Tensor, f: F) -> &mut Self
-    where
-        F: Fn(f32, f32) -> f32,
-    {
-        let output_shape = Tensor::get_broadcast_shape(&self.shape, &rhs.shape).unwrap();
-        if output_shape != self.shape {
-            panic!("In-place operation cannot change tensor shape");
-        }
-
-        let output_size: usize = self.shape.iter().product();
-        for i in 0..output_size {
-            let output_index = Tensor::unravel_index(i, &self.shape);
-            let lhs_flat =
-                Tensor::get_flat_index(&output_index, &self.shape, &self.strides, self.offset)
-                    .unwrap();
-            let rhs_index = Tensor::broadcast_index(&output_index, &rhs.shape);
-            let rhs_flat =
-                Tensor::get_flat_index(&rhs_index, &rhs.shape, &rhs.strides, rhs.offset).unwrap();
-            let data = Arc::make_mut(&mut self.data);
-            data[lhs_flat] = f(data[lhs_flat], rhs.data[rhs_flat]);
-        }
-
-        return self;
-    }
-
-    /// Subtracts `rhs` from this tensor in place using broadcasting.
-    pub fn sub_in_place(&mut self, rhs: &Tensor) -> &mut Self {
-        return self.elementwise_binary_in_place(rhs, |left, right| left - right);
-    }
-
-    /// Divides this tensor by `rhs` in place using broadcasting.
-    pub fn div_in_place(&mut self, rhs: &Tensor) -> &mut Self {
-        return self.elementwise_binary_in_place(rhs, |left, right| left / right);
     }
 
     /// Multiplies tensors elementwise using broadcasting.
@@ -725,6 +649,69 @@ impl Tensor {
         }
 
         return result;
+    }
+
+    pub fn mulmat(lhs: &Tensor, rhs: &Tensor) -> Tensor {
+        if lhs.shape.len() < 2 || rhs.shape.len() < 2 {
+            panic!("Matrix multiplication requires tensors with at least 2 dimensions");
+        }
+
+        // Matrix multiplication needs at least the final two dimensions:
+        // [...batch, rows, cols].
+        let lhs_rank = lhs.shape.len();
+        let rhs_rank = rhs.shape.len();
+
+        // Slicing every dimension except for last two gives the broadcastable
+        // batch shapes. For plain 2D matmul, both batch shapes are empty.
+        let lhs_batch_shape = &lhs.shape[..lhs_rank - 2];
+        let rhs_batch_shape = &rhs.shape[..rhs_rank - 2];
+        let output_batch_shape =
+            Tensor::get_broadcast_shape(lhs_batch_shape, rhs_batch_shape).unwrap();
+
+        // Last two dimensions are the matrix shapes, kernel size:
+        // lhs is [row_lhs, col_lhs], rhs is [row_rhs, col_rhs].
+        let row_lhs = lhs.shape[lhs_rank - 2];
+        let col_lhs = lhs.shape[lhs_rank - 1];
+        let row_rhs = rhs.shape[rhs_rank - 2];
+        let col_rhs = rhs.shape[rhs_rank - 1];
+
+        // The shared inner dimension must match for matrix multiplication.
+        if col_lhs != row_rhs {
+            panic!("Shapes don't match");
+        }
+
+        // A 2D tensor has an empty batch shape; product([]) is 1, so this
+        // same loop handles plain 2D, batched, and broadcasted multiplication.
+        let batch_size: usize = output_batch_shape.iter().product();
+
+        let mut result = Vec::with_capacity(batch_size * row_lhs * col_rhs);
+        for batch in 0..batch_size {
+            // The loop index walks the output batch space. Each operand may
+            // map that output batch to a different source batch when one of
+            // its dimensions was broadcast from size 1.
+            let output_batch_index = Tensor::unravel_index(batch, &output_batch_shape);
+            let lhs_batch_index = Tensor::broadcast_index(&output_batch_index, lhs_batch_shape);
+            let rhs_batch_index = Tensor::broadcast_index(&output_batch_index, rhs_batch_shape);
+
+            // Append the matrix result for this output batch.
+            result.extend(Tensor::mul_2d_strided(
+                lhs,
+                &lhs_batch_index,
+                row_lhs,
+                col_lhs,
+                rhs,
+                &rhs_batch_index,
+                col_rhs,
+            ));
+        }
+
+        // Output keeps the batch dimensions and replaces the final matrix
+        // dimensions with [lhs rows, rhs columns].
+        let mut shape = output_batch_shape;
+        shape.push(row_lhs);
+        shape.push(col_rhs);
+
+        return Tensor::new(shape, result).unwrap();
     }
 
     // Formatting helpers
@@ -799,66 +786,7 @@ impl Mul<&Tensor> for f32 {
 impl Mul<&Tensor> for &Tensor {
     type Output = Tensor;
     fn mul(self, rhs: &Tensor) -> Tensor {
-        if self.shape.len() < 2 || rhs.shape.len() < 2 {
-            return Tensor::multiply_elementwise(self, rhs);
-        }
-
-        // Matrix multiplication needs at least the final two dimensions:
-        // [...batch, rows, cols].
-        let lhs_rank = self.shape.len();
-        let rhs_rank = rhs.shape.len();
-
-        // Slicing every dimension except for last two gives the broadcastable
-        // batch shapes. For plain 2D matmul, both batch shapes are empty.
-        let lhs_batch_shape = &self.shape[..lhs_rank - 2];
-        let rhs_batch_shape = &rhs.shape[..rhs_rank - 2];
-        let output_batch_shape =
-            Tensor::get_broadcast_shape(lhs_batch_shape, rhs_batch_shape).unwrap();
-
-        // Last two dimensions are the matrix shapes, kernel size:
-        // lhs is [row_lhs, col_lhs], rhs is [row_rhs, col_rhs].
-        let row_lhs = self.shape[lhs_rank - 2];
-        let col_lhs = self.shape[lhs_rank - 1];
-        let row_rhs = rhs.shape[rhs_rank - 2];
-        let col_rhs = rhs.shape[rhs_rank - 1];
-
-        // The shared inner dimension must match for matrix multiplication.
-        if col_lhs != row_rhs {
-            panic!("Shapes don't match");
-        }
-
-        // A 2D tensor has an empty batch shape; product([]) is 1, so this
-        // same loop handles plain 2D, batched, and broadcasted multiplication.
-        let batch_size: usize = output_batch_shape.iter().product();
-
-        let mut result = Vec::with_capacity(batch_size * row_lhs * col_rhs);
-        for batch in 0..batch_size {
-            // The loop index walks the output batch space. Each operand may
-            // map that output batch to a different source batch when one of
-            // its dimensions was broadcast from size 1.
-            let output_batch_index = Tensor::unravel_index(batch, &output_batch_shape);
-            let lhs_batch_index = Tensor::broadcast_index(&output_batch_index, lhs_batch_shape);
-            let rhs_batch_index = Tensor::broadcast_index(&output_batch_index, rhs_batch_shape);
-
-            // Append the matrix result for this output batch.
-            result.extend(Tensor::mul_2d_strided(
-                self,
-                &lhs_batch_index,
-                row_lhs,
-                col_lhs,
-                rhs,
-                &rhs_batch_index,
-                col_rhs,
-            ));
-        }
-
-        // Output keeps the batch dimensions and replaces the final matrix
-        // dimensions with [lhs rows, rhs columns].
-        let mut shape = output_batch_shape;
-        shape.push(row_lhs);
-        shape.push(col_rhs);
-
-        return Tensor::new(shape, result).unwrap();
+        Tensor::mulmat(self, rhs)
     }
 }
 
