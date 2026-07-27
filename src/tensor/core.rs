@@ -1,9 +1,11 @@
 use std::fmt;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use rand::random;
 
 use super::error::TensorError;
+use super::operations::TensorOperation;
+use crate::tensor::Tensor;
 
 /// Internal tensor representation.
 ///
@@ -12,15 +14,23 @@ use super::error::TensorError;
 #[derive(Clone)]
 pub(super) struct TensorCore {
     shape: Vec<usize>,
-    data: Arc<Vec<f32>>,
+    data: Rc<Vec<f32>>,
     strides: Vec<usize>,
     offset: usize,
+
+    creator: TensorOperation,
+    parents: Vec<Tensor>,
 }
 
 impl TensorCore {
     // Constructors
 
-    pub(super) fn new(shape: Vec<usize>, data: Vec<f32>) -> Result<Self, TensorError> {
+    pub(super) fn new(
+        shape: Vec<usize>,
+        data: Vec<f32>,
+        creator: TensorOperation,
+        parents: Vec<Tensor>,
+    ) -> Result<Self, TensorError> {
         if shape.iter().any(|&d| d == 0) {
             return Err(TensorError::EmptyDimension);
         }
@@ -36,59 +46,61 @@ impl TensorCore {
         Ok(Self {
             strides: TensorCore::strides_for_shape(&shape),
             shape,
-            data: Arc::new(data),
+            data: Rc::new(data),
             offset: 0,
+            creator,
+            parents,
         })
     }
 
     pub(super) fn zeros(shape: Vec<usize>) -> Result<Self, TensorError> {
         let size = shape.iter().product();
-        return TensorCore::new(shape, vec![0.0; size]);
+        TensorCore::new(shape, vec![0.0; size], TensorOperation::Constant, vec![])
     }
 
     pub(super) fn ones(shape: Vec<usize>) -> Result<Self, TensorError> {
         let size = shape.iter().product();
-        return TensorCore::new(shape, vec![1.0; size]);
+        TensorCore::new(shape, vec![1.0; size], TensorOperation::Constant, vec![])
     }
 
     pub(super) fn full(shape: Vec<usize>, x: f32) -> Result<Self, TensorError> {
         let size = shape.iter().product();
-        return TensorCore::new(shape, vec![x; size]);
+        TensorCore::new(shape, vec![x; size], TensorOperation::Constant, vec![])
     }
 
     pub(super) fn rand(shape: Vec<usize>) -> Result<Self, TensorError> {
         let size = shape.iter().product();
         let data = (0..size).map(|_| random::<f32>()).collect();
-        return TensorCore::new(shape, data);
+        TensorCore::new(shape, data, TensorOperation::Constant, vec![])
     }
 
     pub(super) fn randn(shape: Vec<usize>) -> Result<Self, TensorError> {
         let size = shape.iter().product();
         let data = (0..size).map(|_| TensorCore::standard_normal()).collect();
-        return TensorCore::new(shape, data);
+        TensorCore::new(shape, data, TensorOperation::Constant, vec![])
     }
 
     fn standard_normal() -> f32 {
         let u1 = random::<f32>().max(f32::MIN_POSITIVE);
         let u2 = random::<f32>();
-        return (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos();
+        (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos()
     }
 
     // Layout and indexing helpers
 
     fn strides_for_shape(shape: &[usize]) -> Vec<usize> {
-        return (0..shape.len())
+        (0..shape.len())
             .map(|i| shape[i + 1..].iter().product())
-            .collect();
+            .collect()
     }
 
     fn flat_index_for_strides(index: &[usize], strides: &[usize], offset: usize) -> usize {
-        return offset
+        offset
             + index
                 .iter()
                 .zip(strides.iter())
                 .map(|(index, stride)| index * stride)
-                .sum::<usize>();
+                .sum::<usize>()
     }
 
     fn validate_index(index: &[usize], shape: &[usize]) -> Result<(), TensorError> {
@@ -108,7 +120,7 @@ impl TensorCore {
             }
         }
 
-        return Ok(());
+        Ok(())
     }
 
     fn get_flat_index(
@@ -118,13 +130,12 @@ impl TensorCore {
         offset: usize,
     ) -> Result<usize, TensorError> {
         TensorCore::validate_index(index, shape)?;
-        return Ok(TensorCore::flat_index_for_strides(index, strides, offset));
+        Ok(TensorCore::flat_index_for_strides(index, strides, offset))
     }
 
     fn logical_flat_index(&self, logical_flat_index: usize) -> usize {
         let index = TensorCore::unravel_index(logical_flat_index, &self.shape);
-        return TensorCore::get_flat_index(&index, &self.shape, &self.strides, self.offset)
-            .unwrap();
+        TensorCore::get_flat_index(&index, &self.shape, &self.strides, self.offset).unwrap()
     }
 
     // Element access
@@ -132,17 +143,17 @@ impl TensorCore {
     pub(super) fn get(&self, index: &[usize]) -> Result<&f32, TensorError> {
         let flat_index =
             TensorCore::get_flat_index(index, &self.shape, &self.strides, self.offset)?;
-        return Ok(&self.data[flat_index]);
+        Ok(&self.data[flat_index])
     }
 
     pub(super) fn get_mut(&mut self, index: &[usize]) -> Result<&mut f32, TensorError> {
         let flat_index =
             TensorCore::get_flat_index(index, &self.shape, &self.strides, self.offset)?;
-        return Ok(&mut Arc::make_mut(&mut self.data)[flat_index]);
+        Ok(&mut Rc::make_mut(&mut self.data)[flat_index])
     }
 
     pub(super) fn rank(&self) -> usize {
-        return self.shape.len();
+        self.shape.len()
     }
 
     // Shape/index conversion helpers
@@ -175,7 +186,7 @@ impl TensorCore {
             }
         }
 
-        return Ok(result);
+        Ok(result)
     }
 
     fn unravel_index(mut flat_index: usize, shape: &[usize]) -> Vec<usize> {
@@ -186,12 +197,12 @@ impl TensorCore {
             flat_index /= shape[i];
         }
 
-        return result;
+        result
     }
 
     fn ravel_index(index: &[usize], shape: &[usize]) -> usize {
         let strides = TensorCore::strides_for_shape(shape);
-        return TensorCore::flat_index_for_strides(index, &strides, 0);
+        TensorCore::flat_index_for_strides(index, &strides, 0)
     }
 
     fn broadcast_index(output_index: &[usize], input_shape: &[usize]) -> Vec<usize> {
@@ -206,7 +217,7 @@ impl TensorCore {
             }
         }
 
-        return result;
+        result
     }
 
     // View operations
@@ -255,7 +266,7 @@ impl TensorCore {
 
     // Traversal
 
-    pub(super) fn map<F>(&self, f: F) -> Self
+    pub(super) fn map<F>(&self, f: F, operator: TensorOperation, tensor: &Tensor) -> Self
     where
         F: Fn(f32) -> f32,
     {
@@ -264,7 +275,7 @@ impl TensorCore {
 
         self.visit(|x| result.push(f(x)));
 
-        return TensorCore::new(self.shape.clone(), result).unwrap();
+        TensorCore::new(self.shape.clone(), result, operator, vec![tensor.clone()]).unwrap()
     }
 
     pub(super) fn visit<F>(&self, mut visitor: F)
@@ -318,7 +329,7 @@ impl TensorCore {
             result.push(1);
         }
 
-        return result;
+        result
     }
 
     fn reduced_shape(shape: &[usize], axis: usize, keep_shape: bool) -> Vec<usize> {
@@ -329,10 +340,10 @@ impl TensorCore {
         if keep_shape {
             let mut result = shape.to_vec();
             result[axis] = 1;
-            return result;
+            result
+        } else {
+            TensorCore::shape_without_axis(shape, axis)
         }
-
-        return TensorCore::shape_without_axis(shape, axis);
     }
 
     fn index_with_axis(
@@ -353,37 +364,37 @@ impl TensorCore {
             }
         }
 
-        return result;
+        result
     }
 
     // Unary elementwise operations
 
-    pub(super) fn abs(&self) -> Self {
-        return self.map(|x| x.abs());
+    pub(super) fn abs(&self, tensor: &Tensor) -> Self {
+        self.map(|x| x.abs(), TensorOperation::Abs, tensor)
     }
 
-    pub(super) fn sqrt(&self) -> Self {
-        return self.map(|x| x.sqrt());
+    pub(super) fn sqrt(&self, tensor: &Tensor) -> Self {
+        self.map(|x| x.sqrt(), TensorOperation::Sqrt, tensor)
     }
 
-    pub(super) fn ln(&self) -> Self {
-        return self.map(|x| x.ln());
+    pub(super) fn ln(&self, tensor: &Tensor) -> Self {
+        self.map(|x| x.ln(), TensorOperation::Ln, tensor)
     }
 
-    pub(super) fn neg(&self) -> Self {
-        return self.map(|x| -1.0 * x);
+    pub(super) fn neg(&self, tensor: &Tensor) -> Self {
+        self.map(|x| -1.0 * x,TensorOperation::Neg, tensor)
     }
 
-    pub(super) fn exp(&self) -> Self {
-        return self.map(|x| x.exp());
+    pub(super) fn exp(&self, tensor: &Tensor) -> Self {
+        self.map(|x| x.exp(), TensorOperation::Exp, tensor)
     }
 
-    pub(super) fn pow(&self, n: i32) -> Self {
-        return self.map(|x| x.powi(n));
+    pub(super) fn pow(&self, n: i32, tensor: &Tensor) -> Self {
+        self.map(|x| x.powi(n),  TensorOperation::Pow, tensor)
     }
 
-    pub(super) fn powf(&self, n: f32) -> Self {
-        return self.map(|x| x.powf(n));
+    pub(super) fn powf(&self, n: f32, tensor: &Tensor) -> Self {
+        self.map(|x| x.powf(n), TensorOperation::PowF, tensor)
     }
 
     // Reductions
@@ -391,7 +402,7 @@ impl TensorCore {
     fn sum_float(&self) -> f32 {
         let mut sum = 0.0;
         self.visit(|x| sum += x);
-        return sum;
+        sum
     }
 
     fn max_float(&self) -> f32 {
@@ -401,25 +412,31 @@ impl TensorCore {
                 max = x;
             }
         });
-        return max;
+        max
     }
 
-    pub(super) fn mean(&self) -> Self {
+    pub(super) fn mean(&self, tensor: &Tensor) -> Self {
         let output_size: usize = self.shape.iter().product();
         let sum = self.sum_float();
 
-        return TensorCore::new(vec![1], vec![sum / (output_size as f32)]).unwrap();
+        TensorCore::new(
+            vec![1],
+            vec![sum / (output_size as f32)],
+            TensorOperation::Mean,
+            vec![tensor.clone()],
+        )
+        .unwrap()
     }
 
-    pub(super) fn sum(&self) -> Self {
-        return TensorCore::new(vec![1], vec![self.sum_float()]).unwrap();
+    pub(super) fn sum(&self, tensor: &Tensor) -> Self {
+        TensorCore::new(vec![1], vec![self.sum_float()], TensorOperation::Sum, vec![tensor.clone()]).unwrap()
     }
 
-    pub(super) fn max(&self) -> Self {
-        return TensorCore::new(vec![1], vec![self.max_float()]).unwrap();
+    pub(super) fn max(&self, tensor: &Tensor) -> Self {
+        TensorCore::new(vec![1], vec![self.max_float()], TensorOperation::Max, vec![tensor.clone()]).unwrap()
     }
 
-    pub(super) fn sum_axis(&self, axis: usize, keep_shape: bool) -> Self {
+    pub(super) fn sum_axis(&self, axis: usize, keep_shape: bool, tensor: &Tensor) -> Self {
         let reduced_shape = TensorCore::shape_without_axis(&self.shape, axis);
         let output_shape = TensorCore::reduced_shape(&self.shape, axis, keep_shape);
         let output_size: usize = reduced_shape.iter().product();
@@ -430,17 +447,16 @@ impl TensorCore {
             result[output_flat] += value;
         });
 
-        return TensorCore::new(output_shape, result).unwrap();
+        TensorCore::new(output_shape, result, TensorOperation::Sum, vec![tensor.clone()]).unwrap()
     }
 
-    pub(super) fn mean_axis(&self, axis: usize, keep_shape: bool) -> Self {
-        let result = self.sum_axis(axis, keep_shape);
+    pub(super) fn mean_axis(&self, axis: usize, keep_shape: bool, tensor: &Tensor) -> Self {
+        let result = self.sum_axis(axis, keep_shape, tensor);
         let scale = 1.0 / self.shape[axis] as f32;
-
-        return result.mul_scalar(scale);
+        result.mul_scalar(scale, tensor)
     }
 
-    pub(super) fn max_axis(&self, axis: usize, keep_shape: bool) -> Self {
+    pub(super) fn max_axis(&self, axis: usize, keep_shape: bool, tensor: &Tensor) -> Self {
         let reduced_shape = TensorCore::shape_without_axis(&self.shape, axis);
         let output_shape = TensorCore::reduced_shape(&self.shape, axis, keep_shape);
         let output_size: usize = reduced_shape.iter().product();
@@ -453,54 +469,57 @@ impl TensorCore {
             }
         });
 
-        return TensorCore::new(output_shape, result).unwrap();
+        TensorCore::new(output_shape, result, TensorOperation::Max, vec![tensor.clone()]).unwrap()
     }
 
     // Binary elementwise helpers
 
-    fn elementwise_binary<F>(lhs: &Self, rhs: &Self, f: F) -> Self
+    fn elementwise_binary<F>(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor), f: F, operation: TensorOperation) -> Self
     where
         F: Fn(f32, f32) -> f32,
     {
-        let output_shape = TensorCore::get_broadcast_shape(&lhs.shape, &rhs.shape).unwrap();
+        let lhs_core = lhs.0;
+        let rhs_core = rhs.0;
+
+        let output_shape = TensorCore::get_broadcast_shape(&lhs_core.shape, &rhs_core.shape).unwrap();
         let output_size: usize = output_shape.iter().product();
         let mut result: Vec<f32> = Vec::with_capacity(output_size);
 
         for i in 0..output_size {
             let output_index = TensorCore::unravel_index(i, &output_shape);
-            let lhs_index = TensorCore::broadcast_index(&output_index, &lhs.shape);
-            let rhs_index = TensorCore::broadcast_index(&output_index, &rhs.shape);
+            let lhs_index = TensorCore::broadcast_index(&output_index, &lhs_core.shape);
+            let rhs_index = TensorCore::broadcast_index(&output_index, &rhs_core.shape);
             let lhs_flat =
-                TensorCore::get_flat_index(&lhs_index, &lhs.shape, &lhs.strides, lhs.offset)
+                TensorCore::get_flat_index(&lhs_index, &lhs_core.shape, &lhs_core.strides, lhs_core.offset)
                     .unwrap();
             let rhs_flat =
-                TensorCore::get_flat_index(&rhs_index, &rhs.shape, &rhs.strides, rhs.offset)
+                TensorCore::get_flat_index(&rhs_index, &rhs_core.shape, &rhs_core.strides, rhs_core.offset)
                     .unwrap();
 
-            result.push(f(lhs.data[lhs_flat], rhs.data[rhs_flat]));
+            result.push(f(lhs_core.data[lhs_flat], rhs_core.data[rhs_flat]));
         }
 
-        return TensorCore::new(output_shape, result).unwrap();
+        TensorCore::new(output_shape, result, operation, vec![lhs.1.clone(), lhs.1.clone()]).unwrap()
     }
 
-    pub(super) fn add(lhs: &Self, rhs: &Self) -> Self {
-        return TensorCore::elementwise_binary(lhs, rhs, |left, right| left + right);
+    pub(super) fn add(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor)) -> Self {
+        TensorCore::elementwise_binary(lhs, rhs, |left, right| left + right, TensorOperation::Add)
     }
 
-    pub(super) fn sub(lhs: &Self, rhs: &Self) -> Self {
-        return TensorCore::elementwise_binary(lhs, rhs, |left, right| left - right);
+    pub(super) fn sub(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor)) -> Self {
+        TensorCore::elementwise_binary(lhs, rhs, |left, right| left - right, TensorOperation::Sub)
     }
 
-    pub(super) fn div(lhs: &Self, rhs: &Self) -> Self {
-        return TensorCore::elementwise_binary(lhs, rhs, |left, right| left / right);
+    pub(super) fn div(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor)) -> Self {
+        TensorCore::elementwise_binary(lhs, rhs, |left, right| left / right, TensorOperation::Div)
     }
 
-    pub(super) fn multiply_elementwise(lhs: &Self, rhs: &Self) -> Self {
-        return TensorCore::elementwise_binary(lhs, rhs, |left, right| left * right);
+    pub(super) fn multiply_elementwise(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor)) -> Self {
+        TensorCore::elementwise_binary(lhs, rhs, |left, right| left * right, TensorOperation::ElemMul)
     }
 
-    pub(super) fn mul_scalar(&self, scalar: f32) -> Self {
-        return self.map(|x| scalar * x);
+    pub(super) fn mul_scalar(&self, scalar: f32, tensor: &Tensor) -> Self {
+        self.map(|x| scalar * x, TensorOperation::ScalMul, tensor)
     }
 
     // Matrix helpers
@@ -550,25 +569,28 @@ impl TensorCore {
             }
         }
 
-        return result;
+        result
     }
 
-    pub(super) fn mulmat(lhs: &Self, rhs: &Self) -> Self {
-        if lhs.shape.len() < 2 || rhs.shape.len() < 2 {
+    pub(super) fn mulmat(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor)) -> Self {
+        let lhs_core = lhs.0;
+        let rhs_core = rhs.0;
+
+        if lhs_core.shape.len() < 2 || rhs_core.shape.len() < 2 {
             panic!("Matrix multiplication requires tensors with at least 2 dimensions");
         }
 
-        let lhs_rank = lhs.shape.len();
-        let rhs_rank = rhs.shape.len();
-        let lhs_batch_shape = &lhs.shape[..lhs_rank - 2];
-        let rhs_batch_shape = &rhs.shape[..rhs_rank - 2];
+        let lhs_rank = lhs_core.shape.len();
+        let rhs_rank = rhs_core.shape.len();
+        let lhs_batch_shape = &lhs_core.shape[..lhs_rank - 2];
+        let rhs_batch_shape = &rhs_core.shape[..rhs_rank - 2];
         let output_batch_shape =
             TensorCore::get_broadcast_shape(lhs_batch_shape, rhs_batch_shape).unwrap();
 
-        let row_lhs = lhs.shape[lhs_rank - 2];
-        let col_lhs = lhs.shape[lhs_rank - 1];
-        let row_rhs = rhs.shape[rhs_rank - 2];
-        let col_rhs = rhs.shape[rhs_rank - 1];
+        let row_lhs = lhs_core.shape[lhs_rank - 2];
+        let col_lhs = lhs_core.shape[lhs_rank - 1];
+        let row_rhs = rhs_core.shape[rhs_rank - 2];
+        let col_rhs = rhs_core.shape[rhs_rank - 1];
 
         if col_lhs != row_rhs {
             panic!("Shapes don't match");
@@ -583,11 +605,11 @@ impl TensorCore {
             let rhs_batch_index = TensorCore::broadcast_index(&output_batch_index, rhs_batch_shape);
 
             result.extend(TensorCore::mul_2d_strided(
-                lhs,
+                lhs_core,
                 &lhs_batch_index,
                 row_lhs,
                 col_lhs,
-                rhs,
+                rhs_core,
                 &rhs_batch_index,
                 col_rhs,
             ));
@@ -597,7 +619,7 @@ impl TensorCore {
         shape.push(row_lhs);
         shape.push(col_rhs);
 
-        return TensorCore::new(shape, result).unwrap();
+        TensorCore::new(shape, result, TensorOperation::MatMul, vec![]).unwrap()
     }
 
     // Formatting helpers
@@ -616,35 +638,34 @@ impl TensorCore {
                 index[dimension] = d;
                 self.print_tensor(f, index, dimension + 1)?;
             }
-            writeln!(f, "{}],", " ".repeat(2 * dimension))?;
-            return Ok(());
-        }
-
-        let flat_index =
-            TensorCore::get_flat_index(&index, &self.shape, &self.strides, self.offset).unwrap();
-        write!(f, "{}", self.data[flat_index])?;
-        for d in 1..self.shape[dimension] {
-            index[dimension] = d;
+            writeln!(f, "{}],", " ".repeat(2 * dimension))
+        } else {
             let flat_index =
                 TensorCore::get_flat_index(&index, &self.shape, &self.strides, self.offset)
                     .unwrap();
-            write!(f, ",{}", self.data[flat_index])?;
+            write!(f, "{}", self.data[flat_index])?;
+            for d in 1..self.shape[dimension] {
+                index[dimension] = d;
+                let flat_index =
+                    TensorCore::get_flat_index(&index, &self.shape, &self.strides, self.offset)
+                        .unwrap();
+                write!(f, ",{}", self.data[flat_index])?;
+            }
+            writeln!(f, "]")
         }
-        writeln!(f, "]")?;
-        return Ok(());
     }
 
     pub(super) fn format(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.shape.len() == 0 {
-            return write!(f, "Empty");
+            write!(f, "Empty")
+        } else {
+            write!(f, "Tensor({}", self.shape[0])?;
+            for d in 1..self.shape.len() {
+                write!(f, "x{}", self.shape[d])?;
+            }
+            write!(f, ")\n")?;
+            let mut index = vec![0; self.shape.len()];
+            self.print_tensor(f, &mut index, 0)
         }
-
-        write!(f, "Tensor({}", self.shape[0])?;
-        for d in 1..self.shape.len() {
-            write!(f, "x{}", self.shape[d])?;
-        }
-        write!(f, ")\n")?;
-        let mut index = vec![0; self.shape.len()];
-        return self.print_tensor(f, &mut index, 0);
     }
 }

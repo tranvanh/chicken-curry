@@ -1,0 +1,22 @@
+#[derive(Clone)]
+pub (super) enum TensorOperation{
+    Constant,
+    Add,
+    Sub,
+    Div,
+    ScalMul,
+    ElemMul,
+    MatMul,
+    Transpose,
+    Abs,
+    Ln,
+    Sqrt,
+    Neg,
+    Exp,
+    Pow,
+    PowF,
+    Mean,
+    Sum,
+    Max,
+    Map,
+}

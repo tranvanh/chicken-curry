@@ -1,12 +1,13 @@
 use std::fmt;
 use std::ops::{Add, Div, Mul, Sub};
 use std::rc::Rc;
+use crate::tensor::operations::TensorOperation;
 
 mod core;
 mod error;
+mod operations;
 
 use self::core::TensorCore;
-
 pub use self::error::TensorError;
 
 /// Public dense `f32` tensor handle.
@@ -20,13 +21,13 @@ pub struct Tensor {
 
 impl Tensor {
     fn initialize(core: TensorCore) -> Self {
-        return Self {
+        Self {
             core: Rc::new(core),
-        };
+        }
     }
 
     fn core(&self) -> &TensorCore {
-        return &self.core;
+        &self.core
     }
 
     // Constructors
@@ -36,26 +37,26 @@ impl Tensor {
     /// The product of all dimensions in `shape` must equal `data.len()`, and
     /// every dimension must be non-zero.
     pub fn new(shape: Vec<usize>, data: Vec<f32>) -> Result<Self, TensorError> {
-        let core = TensorCore::new(shape, data)?;
-        return Ok(Tensor::initialize(core));
+        let core = TensorCore::new(shape, data, TensorOperation::Constant, vec![])?;
+        Ok(Tensor::initialize(core))
     }
 
     /// Creates a tensor filled with `0.0`.
     pub fn zeros(shape: Vec<usize>) -> Result<Self, TensorError> {
         let core = TensorCore::zeros(shape)?;
-        return Ok(Tensor::initialize(core));
+        Ok(Tensor::initialize(core))
     }
 
     /// Creates a tensor filled with `1.0`.
     pub fn ones(shape: Vec<usize>) -> Result<Self, TensorError> {
         let core = TensorCore::ones(shape)?;
-        return Ok(Tensor::initialize(core));
+        Ok(Tensor::initialize(core))
     }
 
     /// Creates a tensor where every element is `x`.
     pub fn full(shape: Vec<usize>, x: f32) -> Result<Self, TensorError> {
         let core = TensorCore::full(shape, x)?;
-        return Ok(Tensor::initialize(core));
+        Ok(Tensor::initialize(core))
     }
 
     /// Creates a tensor filled with uniformly distributed random values.
@@ -63,7 +64,7 @@ impl Tensor {
     /// Each element is sampled from the half-open range `[0, 1)`.
     pub fn rand(shape: Vec<usize>) -> Result<Self, TensorError> {
         let core = TensorCore::rand(shape)?;
-        return Ok(Tensor::initialize(core));
+        Ok(Tensor::initialize(core))
     }
 
     /// Creates a tensor filled with standard normally distributed random values.
@@ -72,14 +73,14 @@ impl Tensor {
     /// `rand`, these values are not constrained to `[0, 1)`.
     pub fn randn(shape: Vec<usize>) -> Result<Self, TensorError> {
         let core = TensorCore::randn(shape)?;
-        return Ok(Tensor::initialize(core));
+        Ok(Tensor::initialize(core))
     }
 
     // Element access
 
     /// Returns a shared reference to the element at `index`.
     pub fn get(&self, index: &[usize]) -> Result<&f32, TensorError> {
-        return self.core.get(index);
+        self.core.get(index)
     }
 
     /// Returns a mutable reference to the element at `index`.
@@ -87,12 +88,12 @@ impl Tensor {
     /// If this tensor shares its core representation or data buffer with
     /// another tensor, the shared state is cloned before mutation.
     pub fn get_mut(&mut self, index: &[usize]) -> Result<&mut f32, TensorError> {
-        return Rc::make_mut(&mut self.core).get_mut(index);
+        Rc::make_mut(&mut self.core).get_mut(index)
     }
 
     /// Returns the number of dimensions in the tensor shape.
     pub fn rank(&self) -> usize {
-        return self.core.rank();
+        self.core.rank()
     }
 
     // View operations
@@ -108,13 +109,13 @@ impl Tensor {
     /// logical shape while still reading from the same storage.
     pub fn transpose(&mut self, axis: &[usize]) -> &Self {
         Rc::make_mut(&mut self.core).transpose(axis);
-        return self;
+        self
     }
 
     /// Transposes the final two dimensions.
     pub fn t(&mut self) -> &Self {
         Rc::make_mut(&mut self.core).t();
-        return self;
+        self
     }
 
     // Traversal
@@ -123,11 +124,11 @@ impl Tensor {
     ///
     /// Values are read in logical order, so this works correctly for strided
     /// views such as transposed tensors.
-    pub fn map<F>(&self, f: F) -> Self
+    pub fn map<F>(&self, f: F, operation: TensorOperation) -> Self
     where
         F: Fn(f32) -> f32,
     {
-        return Tensor::initialize(self.core.map(f));
+        Tensor::initialize(self.core.map(f, operation, &self))
     }
 
     /// Visits every element in logical order.
@@ -153,54 +154,54 @@ impl Tensor {
 
     /// Applies absolute value elementwise.
     pub fn abs(&self) -> Self {
-        return Tensor::initialize(self.core.abs());
+        Tensor::initialize(self.core.abs(&self))
     }
 
     /// Applies square root elementwise.
     pub fn sqrt(&self) -> Self {
-        return Tensor::initialize(self.core.sqrt());
+        Tensor::initialize(self.core.sqrt(&self))
     }
 
     /// Applies natural logarithm elementwise.
     pub fn ln(&self) -> Self {
-        return Tensor::initialize(self.core.ln());
+        Tensor::initialize(self.core.ln(&self))
     }
 
     /// Negates every element.
     pub fn neg(&self) -> Self {
-        return Tensor::initialize(self.core.neg());
+        Tensor::initialize(self.core.neg(&self))
     }
 
     /// Applies exponential function elementwise.
     pub fn exp(&self) -> Self {
-        return Tensor::initialize(self.core.exp());
+        Tensor::initialize(self.core.exp(&self))
     }
 
     /// Raises every element to the integer power `n`.
     pub fn pow(&self, n: i32) -> Self {
-        return Tensor::initialize(self.core.pow(n));
+        Tensor::initialize(self.core.pow(n, &self))
     }
 
     /// Raises every element to the floating-point power `n`.
     pub fn powf(&self, n: f32) -> Self {
-        return Tensor::initialize(self.core.powf(n));
+        Tensor::initialize(self.core.powf(n, &self))
     }
 
     // Reductions
 
     /// Returns the mean of all elements as a one-element tensor.
     pub fn mean(&self) -> Self {
-        return Tensor::initialize(self.core.mean());
+        Tensor::initialize(self.core.mean(&self))
     }
 
     /// Returns the sum of all elements as a one-element tensor.
     pub fn sum(&self) -> Self {
-        return Tensor::initialize(self.core.sum());
+        Tensor::initialize(self.core.sum(&self))
     }
 
     /// Returns the maximum element as a one-element tensor.
     pub fn max(&self) -> Self {
-        return Tensor::initialize(self.core.max());
+        Tensor::initialize(self.core.max(&self))
     }
 
     /// Sums values along `axis`.
@@ -208,7 +209,7 @@ impl Tensor {
     /// If `keep_shape` is true, the reduced axis remains in the output shape
     /// with size `1`; otherwise the axis is removed.
     pub fn sum_axis(&self, axis: usize, keep_shape: bool) -> Self {
-        return Tensor::initialize(self.core.sum_axis(axis, keep_shape));
+        Tensor::initialize(self.core.sum_axis(axis, keep_shape, &self))
     }
 
     /// Averages values along `axis`.
@@ -216,7 +217,7 @@ impl Tensor {
     /// If `keep_shape` is true, the reduced axis remains in the output shape
     /// with size `1`; otherwise the axis is removed.
     pub fn mean_axis(&self, axis: usize, keep_shape: bool) -> Self {
-        return Tensor::initialize(self.core.mean_axis(axis, keep_shape));
+        Tensor::initialize(self.core.mean_axis(axis, keep_shape, &self))
     }
 
     /// Takes the maximum value along `axis`.
@@ -224,17 +225,17 @@ impl Tensor {
     /// If `keep_shape` is true, the reduced axis remains in the output shape
     /// with size `1`; otherwise the axis is removed.
     pub fn max_axis(&self, axis: usize, keep_shape: bool) -> Self {
-        return Tensor::initialize(self.core.max_axis(axis, keep_shape));
+        Tensor::initialize(self.core.max_axis(axis, keep_shape, &self))
     }
 
     /// Multiplies tensors elementwise using broadcasting.
     pub fn multiply_elementwise(lhs: &Tensor, rhs: &Tensor) -> Tensor {
-        return Tensor::initialize(TensorCore::multiply_elementwise(lhs.core(), rhs.core()));
+        Tensor::initialize(TensorCore::multiply_elementwise((lhs.core(), lhs), (rhs.core(), rhs)))
     }
 
     /// Matrix multiplication for 2D, batched, and broadcasted batched tensors.
     pub fn mulmat(lhs: &Tensor, rhs: &Tensor) -> Tensor {
-        return Tensor::initialize(TensorCore::mulmat(lhs.core(), rhs.core()));
+        Tensor::initialize(TensorCore::mulmat((lhs.core(), lhs), (rhs.core(), rhs)))
     }
 }
 
@@ -242,28 +243,28 @@ impl Tensor {
 impl Add<&Tensor> for &Tensor {
     type Output = Tensor;
     fn add(self, rhs: &Tensor) -> Tensor {
-        return Tensor::initialize(TensorCore::add(self.core(), rhs.core()));
+        Tensor::initialize(TensorCore::add((self.core(), self), (rhs.core(), rhs)))
     }
 }
 
 impl Sub<&Tensor> for &Tensor {
     type Output = Tensor;
     fn sub(self, rhs: &Tensor) -> Tensor {
-        return Tensor::initialize(TensorCore::sub(self.core(), rhs.core()));
+        Tensor::initialize(TensorCore::sub((self.core(), self), (rhs.core(), rhs)))
     }
 }
 
 impl Div<&Tensor> for &Tensor {
     type Output = Tensor;
     fn div(self, rhs: &Tensor) -> Tensor {
-        return Tensor::initialize(TensorCore::div(self.core(), rhs.core()));
+        Tensor::initialize(TensorCore::div((self.core(), self), (rhs.core(), rhs)))
     }
 }
 
 impl Mul<&Tensor> for f32 {
     type Output = Tensor;
     fn mul(self, rhs: &Tensor) -> Tensor {
-        return Tensor::initialize(rhs.core().mul_scalar(self));
+        Tensor::initialize(rhs.core().mul_scalar(self, rhs))
     }
 }
 
@@ -276,13 +277,13 @@ impl Mul<&Tensor> for f32 {
 impl Mul<&Tensor> for &Tensor {
     type Output = Tensor;
     fn mul(self, rhs: &Tensor) -> Tensor {
-        return Tensor::mulmat(self, rhs);
+        Tensor::mulmat(self, rhs)
     }
 }
 
 // Formatting
 impl fmt::Display for Tensor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        return self.core.format(f);
+        self.core.format(f)
     }
 }

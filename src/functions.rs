@@ -4,14 +4,14 @@ pub mod activation {
 
     /// Applies sigmoid elementwise.
     pub fn sigmoid(tensor: &Tensor) -> Tensor {
-        return tensor.map(|x| {
+        tensor.map(|x| {
             if x >= 0.0 {
                 1.0 / (1.0 + (-x).exp())
             } else {
                 let e = x.exp();
                 e / (1.0 + e)
             }
-        });
+        })
     }
 
     /// Applies rectified linear unit elementwise.
