@@ -54,7 +54,7 @@ impl Tensor{
         })
     }
 
-    fn offset(&self, index: &[usize]) -> Result<usize, TensorError> {
+    fn get_flat_index(&self, index: &[usize]) -> Result<usize, TensorError> {
         if index.len() != self.shape.len() {
             return Err(TensorError::ShapeMismatch {
                 expected: index.len(),
@@ -96,7 +96,7 @@ impl Tensor{
                 actual: self.shape.len()
             });
         }
-        let flat_index = self.offset(index)?;
+        let flat_index = self.get_flat_index(index)?;
         return Ok(&self.data[flat_index]);
     }
 
@@ -107,7 +107,7 @@ impl Tensor{
                 actual: self.shape.len()
             });
         }
-        let flat_index = self.offset(index)?;
+        let flat_index = self.get_flat_index(index)?;
         return Ok(&mut Arc::make_mut(&mut self.data)[flat_index]);
     }
 
@@ -124,11 +124,11 @@ impl Tensor{
             return Ok(());
         }
 
-        let flat_index = self.offset(&index).unwrap();
+        let flat_index = self.get_flat_index(&index).unwrap();
         write!(f, "{}", self.data[flat_index])?;
         for d in 1..self.shape[dimension]  {
             index[dimension] = d;
-            let flat_index = self.offset(&index).unwrap();
+            let flat_index = self.get_flat_index(&index).unwrap();
             write!(f, ",{}", self.data[flat_index])?;
         }
         writeln!(f, "]")?;
@@ -159,9 +159,9 @@ impl Tensor{
                     rhs_index.push(inner);
                     rhs_index.push(col);
 
-                    let lhs_offset = lhs.offset(&lhs_index).unwrap();
-                    let rhs_offset = rhs.offset(&rhs_index).unwrap();
-                    sum += lhs.data[lhs_offset] * rhs.data[rhs_offset];
+                    let lhs_flat = lhs.get_flat_index(&lhs_index).unwrap();
+                    let rhs_flat = rhs.get_flat_index(&rhs_index).unwrap();
+                    sum += lhs.data[lhs_flat] * rhs.data[rhs_flat];
                 }
 
                 result[row * col_rhs + col] = sum;
@@ -310,10 +310,10 @@ impl Add<&Tensor> for &Tensor {
             let output_index = Tensor::unravel_index(i, &output_shape);
             let lhs_index = Tensor::broadcast_index(&output_index, &self.shape);
             let rhs_index = Tensor::broadcast_index(&output_index, &rhs.shape);
-            let lhs_offset = self.offset(&lhs_index).unwrap();
-            let rhs_offset = rhs.offset(&rhs_index).unwrap();
+            let lhs_flat = self.get_flat_index(&lhs_index).unwrap();
+            let rhs_flat = rhs.get_flat_index(&rhs_index).unwrap();
 
-            result.push(self.data[lhs_offset] + rhs.data[rhs_offset]);
+            result.push(self.data[lhs_flat] + rhs.data[rhs_flat]);
         }
 
         return Tensor::new(output_shape, result).unwrap();
@@ -328,8 +328,8 @@ impl Mul<&Tensor> for f32 {
 
         for i in 0 .. output_size {
             let output_index = Tensor::unravel_index(i, &rhs.shape);
-            let rhs_offset = rhs.offset(&output_index).unwrap();
-            result.push(self * rhs.data[rhs_offset]);
+            let rhs_flat = rhs.get_flat_index(&output_index).unwrap();
+            result.push(self * rhs.data[rhs_flat]);
         }
 
         return Tensor::new(rhs.shape.clone(), result).unwrap();
