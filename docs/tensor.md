@@ -93,16 +93,33 @@ Possible indexing errors:
 - `TensorError::OutOfBounds { bound, index }` when an index is outside its
   dimension
 
-## Addition
-
-Tensor addition is implemented for references:
+Mutable access is available through:
 
 ```rust
-let result = &left + &right;
+*tensor.get_mut(&[1, 2])? = 42.0;
 ```
 
-The operation is elementwise. Input tensors may have the same shape or
-compatible broadcast shapes.
+If a tensor shares its storage with another tensor, mutable access uses
+copy-on-write through `Arc::make_mut`.
+
+The tensor rank can be queried with:
+
+```rust
+let rank = tensor.rank();
+```
+
+## Elementwise Arithmetic
+
+Elementwise addition, subtraction, and division are implemented for tensor
+references:
+
+```rust
+let added = &left + &right;
+let subtracted = &left - &right;
+let divided = &left / &right;
+```
+
+Input tensors may have the same shape or compatible broadcast shapes.
 
 Example:
 
@@ -130,6 +147,16 @@ across the other operand:
 
 If shapes cannot be broadcast together, the current implementation panics.
 
+In-place subtraction and division are also available:
+
+```rust
+tensor.sub_in_place(&rhs);
+tensor.div_in_place(&rhs);
+```
+
+These operations use broadcasting, but the broadcasted output shape must match
+the left-hand tensor shape because the tensor is mutated in place.
+
 ## Scalar Multiplication
 
 Scalar multiplication is implemented as:
@@ -148,14 +175,13 @@ Unary tensor operations are implemented as `Tensor` methods:
 - `abs`
 - `sqrt`
 - `ln`
-- `relu`
 - `neg`
 - `exp`
 - `pow`
 - `powf`
 
-Internally, these methods share a private `map` helper, which applies a
-function to every logical element and returns a new materialized tensor.
+The `map` method applies a function to every logical element and returns a new
+materialized tensor.
 
 With the view-style storage model, `map` cannot simply walk the raw shared
 storage buffer. A tensor may be non-contiguous after operations such as
@@ -183,6 +209,48 @@ values:
 ```
 
 The result is returned as a new contiguous tensor.
+
+Some in-place unary transforms are available:
+
+```rust
+tensor.map_in_place(|x| x * 2.0);
+tensor.exp_in_place();
+tensor.neg_inplace();
+tensor.pow_inplace(2);
+tensor.div_scalar_in_place(3.0);
+```
+
+In-place transforms mutate the logical tensor values. They remain correct for
+strided views because each write is resolved through shape, stride, and offset
+metadata.
+
+## Reductions
+
+Whole-tensor reductions return one-element tensors:
+
+```rust
+let mean = tensor.mean();
+let sum = tensor.sum();
+let max = tensor.max();
+```
+
+Axis reductions reduce over one dimension:
+
+```rust
+let rows_removed = tensor.sum_axis(1, false);
+let rows_kept = tensor.sum_axis(1, true);
+let mean = tensor.mean_axis(1, false);
+let max = tensor.max_axis(1, false);
+```
+
+The second argument controls whether the reduced dimension is kept:
+
+```text
+shape [2, 3], axis 1, keep_shape false -> [2]
+shape [2, 3], axis 1, keep_shape true  -> [2, 1]
+```
+
+Rank-one reductions use shape `[1]` instead of an empty scalar shape.
 
 ## Transpose
 
@@ -240,7 +308,8 @@ offset `0 * 1 + 1 * 3 = 3`, which reads value `4`.
 
 The `*` operator has two tensor behaviors:
 
-- if either operand has rank 1, multiplication is elementwise with broadcasting
+- if either operand has rank less than 2, multiplication is elementwise with
+  broadcasting
 - if both operands have rank 2 or greater, multiplication is matrix
   multiplication over the final two dimensions
 
@@ -361,9 +430,16 @@ rhs matrix at batch `[0, 3]`.
 
 The current implementation panics when:
 
-- either tensor has fewer than 2 dimensions
 - leading batch dimensions cannot be broadcast together
 - the inner matrix dimensions do not match
+
+If either operand has fewer than 2 dimensions, `*` uses elementwise
+multiplication instead of matrix multiplication.
+
+## Functions
+
+Activation and loss helpers are documented separately in
+[Functions](functions.md).
 
 ## Display
 
