@@ -115,26 +115,19 @@ impl Tensor {
 
     /// Creates row-major strides for a contiguous tensor with `shape`.
     fn strides_for_shape(shape: &[usize]) -> Vec<usize> {
-        let mut strides: Vec<usize> = Vec::with_capacity(shape.len());
-
-        for d in 0..shape.len() - 1 {
-            let subset: &[usize] = &shape[d + 1..];
-            strides.push(subset.iter().product());
-        }
-        strides.push(1);
-
-        return strides;
+        return (0..shape.len())
+            .map(|i| shape[i + 1..].iter().product())
+            .collect();
     }
 
     /// Converts an index and stride metadata into a flat data-buffer position.
     fn flat_index_for_strides(index: &[usize], strides: &[usize], offset: usize) -> usize {
-        let mut result = offset;
-
-        for i in 0..index.len() {
-            result += index[i] * strides[i];
-        }
-
-        return result;
+        return offset
+            + index
+                .iter()
+                .zip(strides.iter())
+                .map(|(index, stride)| index * stride)
+                .sum::<usize>();
     }
 
     /// Checks that an index has the same rank as `shape` and is in bounds.
@@ -146,11 +139,11 @@ impl Tensor {
             });
         }
 
-        for i in 0..shape.len() {
-            if index[i] >= shape[i] {
+        for (&index_dimension, &shape_dimension) in index.iter().zip(shape.iter()) {
+            if index_dimension >= shape_dimension {
                 return Err(TensorError::OutOfBounds {
-                    bound: shape[i],
-                    index: index[i],
+                    bound: shape_dimension,
+                    index: index_dimension,
                 });
             }
         }
@@ -170,6 +163,11 @@ impl Tensor {
     ) -> Result<usize, TensorError> {
         Tensor::validate_index(index, shape)?;
         return Ok(Tensor::flat_index_for_strides(index, strides, offset));
+    }
+
+    fn logical_flat_index(&self, logical_flat_index: usize) -> usize {
+        let index = Tensor::unravel_index(logical_flat_index, &self.shape);
+        return Tensor::get_flat_index(&index, &self.shape, &self.strides, self.offset).unwrap();
     }
 
     // Element access
@@ -354,19 +352,7 @@ impl Tensor {
         let output_size: usize = self.shape.iter().product();
         let mut result: Vec<f32> = Vec::with_capacity(output_size);
 
-        // Elementwise operations apply to the tensor's logical order, not raw
-        // storage order. After view operations such as transpose, the shared
-        // data buffer may no longer be contiguous for this shape, so each
-        // logical output index must be resolved through shape/stride/offset
-        // metadata before reading the input value. Creating the new tensor
-        // materializes the result as a contiguous tensor.
-        for i in 0..output_size {
-            let output_index = Tensor::unravel_index(i, &self.shape);
-            let flat_index =
-                Tensor::get_flat_index(&output_index, &self.shape, &self.strides, self.offset)
-                    .unwrap();
-            result.push(f(self.data[flat_index]));
-        }
+        self.visit(|x| result.push(f(x)));
 
         return Tensor::new(self.shape.clone(), result).unwrap();
     }
@@ -382,10 +368,7 @@ impl Tensor {
         let output_size: usize = self.shape.iter().product();
 
         for i in 0..output_size {
-            let output_index = Tensor::unravel_index(i, &self.shape);
-            let flat_index =
-                Tensor::get_flat_index(&output_index, &self.shape, &self.strides, self.offset)
-                    .unwrap();
+            let flat_index = self.logical_flat_index(i);
             let data = Arc::make_mut(&mut self.data);
             data[flat_index] = f(data[flat_index]);
         }
@@ -410,11 +393,7 @@ impl Tensor {
     {
         let output_size: usize = self.shape.iter().product();
         for i in 0..output_size {
-            let output_index = Tensor::unravel_index(i, &self.shape);
-            let flat_index =
-                Tensor::get_flat_index(&output_index, &self.shape, &self.strides, self.offset)
-                    .unwrap();
-            visitor(self.data[flat_index]);
+            visitor(self.data[self.logical_flat_index(i)]);
         }
     }
 
@@ -453,13 +432,11 @@ impl Tensor {
     /// Rank-one reductions use `[1]` instead of an empty shape because this
     /// tensor type represents scalar results as one-element tensors.
     fn shape_without_axis(shape: &[usize], axis: usize) -> Vec<usize> {
-        let mut result = Vec::with_capacity(shape.len().saturating_sub(1));
-
-        for i in 0..shape.len() {
-            if i != axis {
-                result.push(shape[i]);
-            }
-        }
+        let mut result: Vec<usize> = shape
+            .iter()
+            .enumerate()
+            .filter_map(|(i, dimension)| if i == axis { None } else { Some(*dimension) })
+            .collect();
 
         if result.len() == 0 {
             result.push(1);
@@ -797,18 +774,7 @@ impl Div<&Tensor> for &Tensor {
 impl Mul<&Tensor> for f32 {
     type Output = Tensor;
     fn mul(self, rhs: &Tensor) -> Tensor {
-        let output_size: usize = rhs.shape.iter().product();
-        let mut result = Vec::with_capacity(output_size);
-
-        for i in 0..output_size {
-            let output_index = Tensor::unravel_index(i, &rhs.shape);
-            let rhs_flat =
-                Tensor::get_flat_index(&output_index, &rhs.shape, &rhs.strides, rhs.offset)
-                    .unwrap();
-            result.push(self * rhs.data[rhs_flat]);
-        }
-
-        return Tensor::new(rhs.shape.clone(), result).unwrap();
+        return rhs.map(|x| self * x);
     }
 }
 
