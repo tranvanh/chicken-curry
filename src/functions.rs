@@ -12,11 +12,11 @@ pub mod activation {
         });
     }
     pub fn relu(tensor: &Tensor) -> Tensor {
-        return tensor.map(|x| x.max(0.0));
+        tensor.map(|x| x.max(0.0))
     }
 
     pub fn tanh(tensor: &Tensor) -> Tensor {
-        return tensor.map(|x| x.tanh());
+        tensor.map(|x| x.tanh())
     }
 
     pub fn softmax(tensor: &Tensor, axis: usize) -> Result<Tensor, TensorError> {
@@ -33,17 +33,20 @@ pub mod activation {
 
         let sums = result.sum_axis(axis, true);
         result.div_in_place(&sums);
-
-        return Ok(result);
+        Ok(result)
     }
 }
 
 pub mod loss {
     use crate::tensor::Tensor;
-    pub fn mse(tensor: &Tensor) -> Tensor {
-        return tensor.map(|x| 1.0 / (1.0 + (-x).exp()));
+    pub fn mse(pred: &Tensor, target: &Tensor) -> Tensor {
+        let mut result = pred - target;
+        result.pow_inplace(2);
+        result.mean()
     }
-    pub fn cross_entropy(tensor: &Tensor) -> Tensor {
-        return tensor.map(|x| x.max(0.0));
+
+    pub fn cross_entropy(pred: &Tensor, target: &Tensor, axis: usize) -> Tensor {
+        let pred_ln = pred.ln();
+        Tensor::multiply_elementwise(&pred_ln, target).sum_axis(axis, false).neg()
     }
 }

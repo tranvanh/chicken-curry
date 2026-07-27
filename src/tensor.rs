@@ -507,6 +507,10 @@ impl Tensor {
         return self.map(|x| -1.0 * x);
     }
 
+    pub fn neg_inplace(&mut self) -> &Self {
+        return self.map_in_place(|x| -1.0 * x);
+    }
+
     /// Applies exponential function elementwise.
     pub fn exp(&self) -> Self {
         return self.map(|x| x.exp());
@@ -515,6 +519,9 @@ impl Tensor {
     /// Raises every element to the integer power `n`.
     pub fn pow(&self, n: i32) -> Self {
         return self.map(|x| x.powi(n));
+    }
+    pub fn pow_inplace(&mut self, n: i32) -> &Self {
+        return self.map_in_place(|x| x.powi(n));
     }
 
     /// Raises every element to the floating-point power `n`.
@@ -547,6 +554,7 @@ impl Tensor {
 
         return Tensor::new(vec![1], vec![sum / (output_size as f32)]).unwrap();
     }
+
     /// Returns the sum of all elements as a one-element tensor.
     pub fn sum(&self) -> Self {
         return Tensor::new(vec![1], vec![Tensor::sum_float(&self)]).unwrap();
@@ -668,7 +676,7 @@ impl Tensor {
         return self.elementwise_binary_in_place(rhs, |left, right| left / right);
     }
 
-    fn multiply_elementwise(lhs: &Tensor, rhs: &Tensor) -> Tensor {
+    pub fn multiply_elementwise(lhs: &Tensor, rhs: &Tensor) -> Tensor {
         return Tensor::elementwise_binary(lhs, rhs, |left, right| left * right);
     }
 
