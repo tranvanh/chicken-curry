@@ -2,11 +2,6 @@ use std::fmt;
 use std::ops::Mul;
 use std::ops::Add;
 
-pub struct Tensor{
-    shape: Vec<usize>,
-    data: Vec<f32>,
-    strides: Vec<usize>,
-}
 
 #[derive(Debug)]
 pub enum TensorError {
@@ -24,6 +19,12 @@ pub enum TensorError {
         index: usize
     },
     ShapeNotSupported,
+}
+
+pub struct Tensor{
+    shape: Vec<usize>,
+    data: Vec<f32>,
+    strides: Vec<usize>,
 }
 
 impl Tensor{
@@ -87,6 +88,17 @@ impl Tensor{
         return Ok(&self.data[flat_index]);
     }
 
+    pub fn get_mut(&mut self, index: &[usize]) -> Result<&mut f32, TensorError> {
+        if index.len() != self.shape.len() {
+            return Err(TensorError::ShapeMismatch {
+                expected: index.len(),
+                actual: self.shape.len()
+            });
+        }
+        let flat_index = self.offset(index)?;
+        return Ok(&mut self.data[flat_index]);
+    }
+
     fn print_tensor(&self, f: &mut fmt::Formatter<'_>, index: &mut Vec<usize>, dimension : usize) -> fmt::Result{
         write!(f, "{}[", " ".repeat(2 * dimension))?;
 
@@ -123,21 +135,86 @@ impl Tensor{
         }
         return result;
     }
-}
 
-impl fmt::Display for Tensor {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.shape.len() == 0 {
-            return write!(f, "Empty");
+    /// Calculates the shape produced by broadcasting two shapes together.
+    ///
+    /// Broadcasting compares dimensions from right to left. Two dimensions are
+    /// compatible when they are equal, or when either side is `1`. Missing
+    /// leading dimensions are treated as `1`.
+    ///
+    /// For example, `[2, 1, 4]` and `[3, 4]` broadcast to `[2, 3, 4]`.
+    fn get_broadcast_shape(lhs: &[usize], rhs: &[usize]) -> Result<Vec<usize>, TensorError> {
+        let rank = lhs.len().max(rhs.len());
+        let mut result = vec![1; rank];
+
+        for i in 0..rank {
+            let lhs_index = lhs.len() as isize - 1 - i as isize;
+            let rhs_index = rhs.len() as isize - 1 - i as isize;
+            let lhs_dim = if lhs_index >= 0 { lhs[lhs_index as usize] } else { 1 };
+            let rhs_dim = if rhs_index >= 0 { rhs[rhs_index as usize] } else { 1 };
+
+            if lhs_dim == rhs_dim || lhs_dim == 1 || rhs_dim == 1 {
+                result[rank - 1 - i] = lhs_dim.max(rhs_dim);
+            } else {
+                return Err(TensorError::ShapeMismatch {
+                    expected: lhs_dim,
+                    actual: rhs_dim,
+                });
+            }
         }
 
-        write!(f, "Tensor({}", self.shape[0])?;
-        for d in 1 .. self.shape.len(){
-            write!(f, "x{}", self.shape[d])?;
+        return Ok(result);
+    }
+
+    /// Converts a flat row-major index into a multidimensional index.
+    ///
+    /// For shape `[2, 3]`, flat index `4` becomes `[1, 1]`.
+    fn unravel_index(mut flat_index: usize, shape: &[usize]) -> Vec<usize> {
+        let mut result = vec![0; shape.len()];
+
+        for i in (0..shape.len()).rev() {
+            result[i] = flat_index % shape[i];
+            flat_index /= shape[i];
         }
-        write!(f, ")\n")?;
-        let mut index = vec![0; self.shape.len()];
-        return self.print_tensor(f, &mut index, 0);
+
+        return result;
+    }
+
+    /// Maps an output index back into one operand's index space.
+    ///
+    /// Broadcast dimensions have size `1` in the input, so every output index
+    /// along that dimension reads from input index `0`.
+    ///
+    /// For output index `[1, 2, 3]` and input shape `[1, 4]`, the mapped input
+    /// index is `[0, 3]`.
+    fn broadcast_index(output_index: &[usize], input_shape: &[usize]) -> Vec<usize> {
+        let offset = output_index.len() - input_shape.len();
+        let mut result = Vec::with_capacity(input_shape.len());
+
+        for i in 0..input_shape.len() {
+            if input_shape[i] == 1 {
+                result.push(0);
+            } else {
+                result.push(output_index[offset + i]);
+            }
+        }
+
+        return result;
+    }
+
+    /// Converts a batch-only index into the flat offset where its matrix starts.
+    ///
+    /// The full tensor strides are used here, but only the leading batch
+    /// dimensions are multiplied. The remaining matrix dimensions are handled
+    /// inside `mul_2d_flat`.
+    fn batch_offset(batch_index: &[usize], strides: &[usize]) -> usize {
+        let mut result = 0;
+
+        for i in 0..batch_index.len() {
+            result += batch_index[i] * strides[i];
+        }
+
+        return result;
     }
 }
 
@@ -168,7 +245,12 @@ impl Mul<&Tensor> for f32 {
     }
 }
 
-// Using the batch method where [..., m, n] last two dimensions create a kernel and we just iterate through pair of combinations, matching the matrices
+/// Matrix multiplication for 2D, batched, and broadcasted batched tensors.
+///
+/// The final two dimensions are treated as the matrix dimensions:
+/// `[batch..., rows, cols]`. Only the leading `batch...` dimensions are
+/// broadcasted; the inner matrix dimensions must still satisfy normal matrix
+/// multiplication rules.
 impl Mul<&Tensor> for &Tensor {
     type Output = Tensor;
     fn mul(self, rhs: &Tensor) -> Tensor {
@@ -178,28 +260,22 @@ impl Mul<&Tensor> for &Tensor {
             panic!("Matrix multiplication requires tensors with at least 2 dimensions");
         }
 
-        // This implementation supports pairwise batch multiplication only,
-        // so both tensors must have the same rank and the same batch shape.
-        if self.shape.len() != rhs.shape.len() {
-            panic!("Batch dimensions don't match");
-        }
+        let lhs_rank = self.shape.len();
+        let rhs_rank = rhs.shape.len();
 
-        let rank = self.shape.len();
-
-        // Slicing every dimension except for last two
-        let lhs_batch_shape = &self.shape[..rank - 2];
-        let rhs_batch_shape = &rhs.shape[..rank - 2];
-
-        if lhs_batch_shape != rhs_batch_shape {
-            panic!("Batch dimensions don't match");
-        }
+        // Slicing every dimension except for last two gives the broadcastable
+        // batch shapes. For plain 2D matmul, both batch shapes are empty.
+        let lhs_batch_shape = &self.shape[..lhs_rank - 2];
+        let rhs_batch_shape = &rhs.shape[..rhs_rank - 2];
+        let output_batch_shape =
+            Tensor::get_broadcast_shape(lhs_batch_shape, rhs_batch_shape).unwrap();
 
         // Last two dimensions are the matrix shapes, kernel size:
         // lhs is [row_lhs, col_lhs], rhs is [row_rhs, col_rhs].
-        let row_lhs = self.shape[rank - 2];
-        let col_lhs = self.shape[rank - 1];
-        let row_rhs = rhs.shape[rank - 2];
-        let col_rhs = rhs.shape[rank - 1];
+        let row_lhs = self.shape[lhs_rank - 2];
+        let col_lhs = self.shape[lhs_rank - 1];
+        let row_rhs = rhs.shape[rhs_rank - 2];
+        let col_rhs = rhs.shape[rhs_rank - 1];
 
         // The shared inner dimension must match for matrix multiplication.
         if col_lhs != row_rhs {
@@ -207,20 +283,28 @@ impl Mul<&Tensor> for &Tensor {
         }
 
         // A 2D tensor has an empty batch shape; product([]) is 1, so this
-        // same loop handles both plain 2D and batched multiplication.
-        let batch_size: usize = lhs_batch_shape.iter().product();
+        // same loop handles plain 2D, batched, and broadcasted multiplication.
+        let batch_size: usize = output_batch_shape.iter().product();
         let lhs_matrix_size = row_lhs * col_lhs;
         let rhs_matrix_size = row_rhs * col_rhs;
 
         let mut result = Vec::with_capacity(batch_size * row_lhs * col_rhs);
         for batch in 0..batch_size {
-            // Each batch item is stored as one contiguous row-major matrix.
-            let lhs_start = batch * lhs_matrix_size;
-            let rhs_start = batch * rhs_matrix_size;
+            // The loop index walks the output batch space. Each operand may
+            // map that output batch to a different source batch when one of
+            // its dimensions was broadcast from size 1.
+            let output_batch_index = Tensor::unravel_index(batch, &output_batch_shape);
+            let lhs_batch_index = Tensor::broadcast_index(&output_batch_index, lhs_batch_shape);
+            let rhs_batch_index = Tensor::broadcast_index(&output_batch_index, rhs_batch_shape);
+
+            // Once the source batch is known for each operand, the batch index
+            // is converted into the start offset of the contiguous matrix.
+            let lhs_start = Tensor::batch_offset(&lhs_batch_index, &self.strides);
+            let rhs_start = Tensor::batch_offset(&rhs_batch_index, &rhs.strides);
             let lhs_end = lhs_start + lhs_matrix_size;
             let rhs_end = rhs_start + rhs_matrix_size;
 
-            // Takes all values from the return vector and returns it by appending them to the end of existing
+            // Append the matrix result for this output batch.
             result.extend(Tensor::mul_2d_flat(
                 &self.data[lhs_start..lhs_end],
                 row_lhs,
@@ -233,10 +317,27 @@ impl Mul<&Tensor> for &Tensor {
 
         // Output keeps the batch dimensions and replaces the final matrix
         // dimensions with [lhs rows, rhs columns].
-        let mut shape = lhs_batch_shape.to_vec();
+        let mut shape = output_batch_shape;
         shape.push(row_lhs);
         shape.push(col_rhs);
 
         return Tensor::new(shape, result).unwrap();
+    }
+}
+
+/// ======================== Utility ========================
+impl fmt::Display for Tensor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.shape.len() == 0 {
+            return write!(f, "Empty");
+        }
+
+        write!(f, "Tensor({}", self.shape[0])?;
+        for d in 1 .. self.shape.len(){
+            write!(f, "x{}", self.shape[d])?;
+        }
+        write!(f, ")\n")?;
+        let mut index = vec![0; self.shape.len()];
+        return self.print_tensor(f, &mut index, 0);
     }
 }
