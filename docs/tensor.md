@@ -147,15 +147,13 @@ across the other operand:
 
 If shapes cannot be broadcast together, the current implementation panics.
 
-In-place subtraction and division are also available:
+Elementwise multiplication is available through an explicit helper:
 
 ```rust
-tensor.sub_in_place(&rhs);
-tensor.div_in_place(&rhs);
+let result = Tensor::multiply_elementwise(&left, &right);
 ```
 
-These operations use broadcasting, but the broadcasted output shape must match
-the left-hand tensor shape because the tensor is mutated in place.
+It uses the same broadcasting rules as addition, subtraction, and division.
 
 ## Scalar Multiplication
 
@@ -209,20 +207,6 @@ values:
 ```
 
 The result is returned as a new contiguous tensor.
-
-Some in-place unary transforms are available:
-
-```rust
-tensor.map_in_place(|x| x * 2.0);
-tensor.exp_in_place();
-tensor.neg_inplace();
-tensor.pow_inplace(2);
-tensor.div_scalar_in_place(3.0);
-```
-
-In-place transforms mutate the logical tensor values. They remain correct for
-strided views because each write is resolved through shape, stride, and offset
-metadata.
 
 ## Reductions
 
@@ -306,22 +290,11 @@ offset `0 * 1 + 1 * 3 = 3`, which reads value `4`.
 
 ## Matrix Multiplication
 
-The `*` operator has two tensor behaviors:
-
-- if either operand has rank less than 2, multiplication is elementwise with
-  broadcasting
-- if both operands have rank 2 or greater, multiplication is matrix
-  multiplication over the final two dimensions
+The `*` operator is matrix multiplication only. Both operands must have rank 2
+or greater. The final two dimensions are treated as matrix dimensions:
 
 ```rust
 let result = &left * &right;
-```
-
-Rank-1 elementwise examples:
-
-```text
-[3] * [3] -> [3]
-[2, 3] * [3] -> [2, 3]
 ```
 
 For 2D tensors:
@@ -430,10 +403,11 @@ rhs matrix at batch `[0, 3]`.
 
 The current implementation panics when:
 
+- either operand has fewer than 2 dimensions
 - leading batch dimensions cannot be broadcast together
 - the inner matrix dimensions do not match
 
-If either operand has fewer than 2 dimensions, `*` uses elementwise
+Use `Tensor::multiply_elementwise` when you want broadcasted elementwise
 multiplication instead of matrix multiplication.
 
 ## Functions

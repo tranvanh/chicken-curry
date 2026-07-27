@@ -37,12 +37,11 @@ pub mod activation {
         }
 
         let max = tensor.max_axis(axis, true);
-        let mut result = tensor - &max;
-        result.exp_in_place();
+        let shifted = tensor - &max;
+        let exponential = shifted.exp();
+        let sums = exponential.sum_axis(axis, true);
 
-        let sums = result.sum_axis(axis, true);
-        result.div_in_place(&sums);
-        Ok(result)
+        Ok(&exponential / &sums)
     }
 }
 
@@ -54,9 +53,8 @@ pub mod loss {
     ///
     /// The result is a one-element tensor containing `mean((pred - target)^2)`.
     pub fn mse(pred: &Tensor, target: &Tensor) -> Tensor {
-        let mut result = pred - target;
-        result.pow_inplace(2);
-        result.mean()
+        let difference = pred - target;
+        difference.pow(2).mean()
     }
 
     /// Returns per-sample categorical cross entropy from probabilities.

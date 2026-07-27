@@ -315,11 +315,11 @@ fn multiplies_tensor_by_scalar() {
 }
 
 #[test]
-fn multiplication_operator_multiplies_rank_one_tensors_elementwise() {
+fn multiply_elementwise_multiplies_rank_one_tensors() {
     let left = Tensor::new(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
     let right = Tensor::new(vec![3], vec![10.0, 20.0, 30.0]).unwrap();
 
-    let result = &left * &right;
+    let result = Tensor::multiply_elementwise(&left, &right);
 
     assert_eq!(*result.get(&[0]).unwrap(), 10.0);
     assert_eq!(*result.get(&[1]).unwrap(), 40.0);
@@ -327,11 +327,11 @@ fn multiplication_operator_multiplies_rank_one_tensors_elementwise() {
 }
 
 #[test]
-fn multiplication_operator_broadcasts_rank_one_tensor_elementwise() {
+fn multiply_elementwise_broadcasts_rank_one_tensor() {
     let left = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
     let right = Tensor::new(vec![3], vec![10.0, 20.0, 30.0]).unwrap();
 
-    let result = &left * &right;
+    let result = Tensor::multiply_elementwise(&left, &right);
 
     assert_eq!(*result.get(&[0, 0]).unwrap(), 10.0);
     assert_eq!(*result.get(&[0, 1]).unwrap(), 40.0);
@@ -713,9 +713,21 @@ fn multiplication_operator_multiplies_4d_batches_of_2d_tensors() {
 }
 
 #[test]
-fn multiplication_operator_panics_for_incompatible_rank_one_tensors() {
+fn multiply_elementwise_panics_for_incompatible_rank_one_tensors() {
     let left = Tensor::new(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
     let right = Tensor::new(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+
+    let result = panic::catch_unwind(|| {
+        let _ = Tensor::multiply_elementwise(&left, &right);
+    });
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn multiplication_operator_panics_when_operand_rank_is_less_than_two() {
+    let left = Tensor::new(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+    let right = Tensor::new(vec![3], vec![10.0, 20.0, 30.0]).unwrap();
 
     let result = panic::catch_unwind(|| {
         let _ = &left * &right;

@@ -36,9 +36,9 @@ Implemented so far:
 - display formatting
 - broadcasted tensor addition, subtraction, and division
 - scalar multiplication
-- elementwise multiplication for operands with rank less than 2
+- explicit broadcasted elementwise multiplication
 - view-style tensor transposition
-- unary elementwise transforms and selected in-place transforms
+- unary elementwise transforms
 - tensor reductions over all elements and along a selected axis
 - matrix multiplication
 - broadcasted batched matrix multiplication
