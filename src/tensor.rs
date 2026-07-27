@@ -3,6 +3,7 @@ use std::ops::Mul;
 use std::ops::Add;
 
 use std::sync::Arc;
+use rand::random;
 
 #[derive(Debug)]
 pub enum TensorError {
@@ -51,6 +52,29 @@ impl Tensor{
             strides,
             offset: 0,
         })
+    }
+
+    pub fn zeros(shape: Vec<usize>) -> Result<Self, TensorError>{
+        let size = shape.iter().product();
+        return Tensor::new(shape, vec![0.0; size]);
+    }
+
+    pub fn ones(shape: Vec<usize>) -> Result<Self, TensorError>{
+        let size = shape.iter().product();
+        return Tensor::new(shape, vec![1.0; size]);
+    }
+
+    pub fn full(shape: Vec<usize>, x : f32) -> Result<Self, TensorError>{
+        let size = shape.iter().product();
+        return Tensor::new(shape, vec![x; size]);
+    }
+
+    pub fn rand(shape: Vec<usize>, data: Vec<f32>) -> Result<Self, TensorError>{
+        todo!()
+    }
+
+    pub fn randn(shape: Vec<usize>, data: Vec<f32>) -> Result<Self, TensorError>{
+        todo!()
     }
 
     fn get_flat_index(&self, index: &[usize]) -> Result<usize, TensorError> {
