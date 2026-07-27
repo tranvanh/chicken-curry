@@ -3,7 +3,7 @@ use std::ops::Mul;
 use std::ops::Add;
 
 use std::sync::Arc;
-
+use crate::operation_trait::Unary;
 
 #[derive(Debug)]
 pub enum TensorError {
@@ -322,7 +322,7 @@ impl Add<&Tensor> for &Tensor {
 
 impl Mul<&Tensor> for f32 {
     type Output = Tensor;
-    fn mul(scalar: self, rhs: &Tensor) -> Tensor { // self is already of type &Tensor, becase we have for &Tensor
+    fn mul(self, rhs: &Tensor) -> Tensor { // self is already of type &Tensor, becase we have for &Tensor
         let output_size: usize = rhs.shape.iter().product();
         let mut result = Vec::with_capacity(output_size);
 
@@ -405,6 +405,62 @@ impl Mul<&Tensor> for &Tensor {
         shape.push(col_rhs);
 
         return Tensor::new(shape, result).unwrap();
+    }
+}
+
+impl Unary for Tensor {
+    fn map<F>(&self, f: F) -> Self
+    where
+        F: Fn(f32) -> f32,
+    {
+        let output_size: usize = self.shape.iter().product();
+        let mut result: Vec<f32> = Vec::with_capacity(output_size);
+
+        // Elementwise operations apply to the tensor's logical order, not raw
+        // storage order. After view operations such as transpose, the shared
+        // data buffer may no longer be contiguous for this shape, so each
+        // logical output index must be resolved through shape/stride/offset
+        // metadata before reading the input value. Creating the new tensor
+        // would make it seem as if it was originally contigous
+        for i in 0..output_size {
+            let output_index = Tensor::unravel_index(i, &self.shape);
+            let flat_index = self.get_flat_index(&output_index).unwrap();
+            result.push(f(self.data[flat_index]));
+        }
+
+        return Tensor::new(self.shape.clone(), result).unwrap();
+    }
+    fn abs(&self) -> Self
+    {
+        return self.map(|x| x.abs());
+    }
+    fn sqrt(&self) -> Self
+    {
+        return self.map(|x| x.sqrt());
+    }
+    fn ln(&self) -> Self
+    {
+        return self.map(|x| x.ln());
+    }
+
+    fn relu(&self) -> Self{
+        return self.map(|x| x.max(0.0));
+    }
+
+    fn neg(&self) -> Self{
+        return self.map(|x| -1.0 * x);
+    }
+
+    fn exp(&self) -> Self{
+        return self.map(|x| x.exp());
+    }
+
+    fn pow(&self, n: i32) -> Self{
+        return self.map(|x| x.powi(n));
+    }
+
+    fn powf(&self, n: f32) -> Self{
+        return self.map(|x| x.powf(n));
     }
 }
 
