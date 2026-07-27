@@ -241,6 +241,14 @@ impl Tensor {
     pub fn mulmat(lhs: &Tensor, rhs: &Tensor) -> Tensor {
         Tensor::initialize(TensorCore::mulmat((lhs.core(), lhs), (rhs.core(), rhs)))
     }
+
+    pub fn computation_graph_string(&self) -> String {
+        self.core().computation_graph_string()
+    }
+
+    pub fn print_computation_graph(&self) {
+        print!("{}", self.computation_graph_string());
+    }
 }
 
 // Operators

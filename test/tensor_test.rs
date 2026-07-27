@@ -77,6 +77,17 @@ fn cloned_tensor_mutation_does_not_change_original() {
 }
 
 #[test]
+fn computation_graph_string_describes_operation_tree() {
+    let tensor = Tensor::ones(vec![2, 2]).unwrap();
+    let result = 2.0 * &tensor;
+
+    let graph = result.computation_graph_string();
+
+    assert!(graph.contains("ScalMul(scalar=2)"));
+    assert!(graph.contains("Constant"));
+}
+
+#[test]
 fn rand_creates_tensor_with_values_in_zero_one_range() {
     let shape = vec![2, 3];
     let tensor = Tensor::rand(shape.clone()).unwrap();

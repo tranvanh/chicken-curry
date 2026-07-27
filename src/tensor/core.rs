@@ -257,7 +257,9 @@ impl TensorCore {
             data: self.data.clone(),
             strides: new_strides,
             offset: self.offset,
-            creator: TensorOperation::Transpose{axis: axis.to_vec()},
+            creator: TensorOperation::Transpose {
+                axis: axis.to_vec(),
+            },
             parents: vec![tensor.clone()],
         }
     }
@@ -398,11 +400,19 @@ impl TensorCore {
     }
 
     pub(super) fn pow(&self, exponent: i32, tensor: &Tensor) -> Self {
-        self.map(|x| x.powi(exponent), TensorOperation::Pow{exponent}, tensor)
+        self.map(
+            |x| x.powi(exponent),
+            TensorOperation::Pow { exponent },
+            tensor,
+        )
     }
 
     pub(super) fn powf(&self, exponent: f32, tensor: &Tensor) -> Self {
-        self.map(|x| x.powf(exponent), TensorOperation::PowF{exponent}, tensor)
+        self.map(
+            |x| x.powf(exponent),
+            TensorOperation::PowF { exponent },
+            tensor,
+        )
     }
 
     pub(super) fn sigmoid(&self, tensor: &Tensor) -> Self {
@@ -457,7 +467,10 @@ impl TensorCore {
         TensorCore::new(
             vec![1],
             vec![self.sum_float()],
-            TensorOperation::Sum{axis: None, keep_shape: None },
+            TensorOperation::Sum {
+                axis: None,
+                keep_shape: None,
+            },
             vec![tensor.clone()],
         )
         .unwrap()
@@ -467,7 +480,10 @@ impl TensorCore {
         TensorCore::new(
             vec![1],
             vec![self.max_float()],
-            TensorOperation::Max{axis: None, keep_shape: None },
+            TensorOperation::Max {
+                axis: None,
+                keep_shape: None,
+            },
             vec![tensor.clone()],
         )
         .unwrap()
@@ -487,7 +503,10 @@ impl TensorCore {
         TensorCore::new(
             output_shape,
             result,
-            TensorOperation::Sum{axis: Some(axis), keep_shape: Some(keep_shape) },
+            TensorOperation::Sum {
+                axis: Some(axis),
+                keep_shape: Some(keep_shape),
+            },
             vec![tensor.clone()],
         )
         .unwrap()
@@ -515,7 +534,10 @@ impl TensorCore {
         TensorCore::new(
             output_shape,
             result,
-            TensorOperation::Max{axis: Some(axis), keep_shape: Some(keep_shape) },
+            TensorOperation::Max {
+                axis: Some(axis),
+                keep_shape: Some(keep_shape),
+            },
             vec![tensor.clone()],
         )
         .unwrap()
@@ -593,7 +615,7 @@ impl TensorCore {
     }
 
     pub(super) fn mul_scalar(&self, scalar: f32, tensor: &Tensor) -> Self {
-        self.map(|x| scalar * x, TensorOperation::ScalMul{scalar}, tensor)
+        self.map(|x| scalar * x, TensorOperation::ScalMul { scalar }, tensor)
     }
 
     // Matrix helpers
@@ -747,5 +769,34 @@ impl TensorCore {
             let mut index = vec![0; self.shape.len()];
             self.print_tensor(f, &mut index, 0)
         }
+    }
+
+    fn push_computation_graph(&self, output: &mut String, depth: usize, with_gap: bool) {
+        output.push_str(&self.creator.to_string());
+        output.push('\n');
+        if with_gap &&  depth > 0 {
+            output.push_str(&" ".repeat(3 * (depth-1)));
+            output.push('|');
+        }
+        for parent_index in 0..self.parents.len() {
+            output.push_str(&" ".repeat(3 * depth));
+            if parent_index + 1 == self.parents.len() {
+                output.push_str("└──");
+                self.parents[parent_index]
+                    .core()
+                    .push_computation_graph(output, depth + 1, false);
+            } else {
+                output.push_str("├──");
+                self.parents[parent_index]
+                    .core()
+                    .push_computation_graph(output, depth + 1, true);
+            }
+        }
+    }
+
+    pub(super) fn computation_graph_string(&self) -> String {
+        let mut output = String::new();
+        self.push_computation_graph(&mut output, 0, false);
+        output
     }
 }
