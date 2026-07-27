@@ -1,7 +1,7 @@
+use crate::tensor::operations::TensorOperation;
 use std::fmt;
 use std::ops::{Add, Div, Mul, Sub};
 use std::rc::Rc;
-use crate::tensor::operations::TensorOperation;
 
 mod core;
 mod error;
@@ -124,11 +124,11 @@ impl Tensor {
     ///
     /// Values are read in logical order, so this works correctly for strided
     /// views such as transposed tensors.
-    pub fn map<F>(&self, f: F, operation: TensorOperation) -> Self
+    pub fn map<F>(&self, f: F) -> Self
     where
         F: Fn(f32) -> f32,
     {
-        Tensor::initialize(self.core.map(f, operation, &self))
+        Tensor::initialize(self.core.map(f, TensorOperation::Map, &self))
     }
 
     /// Visits every element in logical order.
@@ -187,6 +187,21 @@ impl Tensor {
         Tensor::initialize(self.core.powf(n, &self))
     }
 
+    /// Applies sigmoid elementwise.
+    pub fn sigmoid(&self) -> Self {
+        Tensor::initialize(self.core.sigmoid(&self))
+    }
+
+    /// Applies rectified linear unit elementwise.
+    pub fn relu(&self) -> Self {
+        Tensor::initialize(self.core.relu(&self))
+    }
+
+    /// Applies hyperbolic tangent elementwise.
+    pub fn tanh(&self) -> Self {
+        Tensor::initialize(self.core.tanh(&self))
+    }
+
     // Reductions
 
     /// Returns the mean of all elements as a one-element tensor.
@@ -230,7 +245,10 @@ impl Tensor {
 
     /// Multiplies tensors elementwise using broadcasting.
     pub fn multiply_elementwise(lhs: &Tensor, rhs: &Tensor) -> Tensor {
-        Tensor::initialize(TensorCore::multiply_elementwise((lhs.core(), lhs), (rhs.core(), rhs)))
+        Tensor::initialize(TensorCore::multiply_elementwise(
+            (lhs.core(), lhs),
+            (rhs.core(), rhs),
+        ))
     }
 
     /// Matrix multiplication for 2D, batched, and broadcasted batched tensors.
