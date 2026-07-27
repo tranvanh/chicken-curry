@@ -224,7 +224,7 @@ impl TensorCore {
 
     // View operations
 
-    pub(super) fn transpose(&mut self, axis: &[usize]) {
+    pub(super) fn transpose(&self, axis: &[usize], tensor: &Tensor) -> Self {
         if self.shape.len() < 2 {
             panic!("Transposition requires tensors with at least 2 dimensions");
         }
@@ -252,18 +252,24 @@ impl TensorCore {
             new_strides.push(self.strides[axis_index]);
         }
 
-        self.shape = new_shape;
-        self.strides = new_strides;
+        Self {
+            shape: new_shape,
+            data: self.data.clone(),
+            strides: new_strides,
+            offset: self.offset,
+            creator: TensorOperation::Transpose,
+            parents: vec![tensor.clone()],
+        }
     }
 
-    pub(super) fn t(&mut self) {
+    pub(super) fn t(&self, tensor: &Tensor) -> Self {
         if self.shape.len() < 2 {
             panic!("Matrix transposition requires tensors with at least 2 dimensions");
         }
         let rank = self.shape.len();
         let mut axis: Vec<usize> = (0..rank).collect();
         axis.swap(rank - 2, rank - 1);
-        self.transpose(&axis);
+        self.transpose(&axis, tensor)
     }
 
     // Traversal
@@ -693,7 +699,13 @@ impl TensorCore {
         shape.push(row_lhs);
         shape.push(col_rhs);
 
-        TensorCore::new(shape, result, TensorOperation::MatMul, vec![lhs.1.clone(), rhs.1.clone()]).unwrap()
+        TensorCore::new(
+            shape,
+            result,
+            TensorOperation::MatMul,
+            vec![lhs.1.clone(), rhs.1.clone()],
+        )
+        .unwrap()
     }
 
     // Formatting helpers
