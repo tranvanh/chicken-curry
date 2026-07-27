@@ -1,5 +1,5 @@
 use std::fmt;
-use std::ops::{Add, Mul, Sub};
+use std::ops::{Add, Mul, Sub, Div};
 
 use rand::random;
 use std::sync::Arc;
@@ -714,6 +714,13 @@ impl Sub<&Tensor> for &Tensor {
     type Output = Tensor;
     fn sub(self, rhs: &Tensor) -> Tensor {
         return Tensor::elementwise_binary(self, rhs, |left, right| left - right);
+    }
+}
+
+impl Div<&Tensor> for &Tensor {
+    type Output = Tensor;
+    fn div(self, rhs: &Tensor) -> Tensor {
+        return Tensor::elementwise_binary(self, rhs, |left, right| left / right);
     }
 }
 

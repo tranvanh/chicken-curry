@@ -1,5 +1,5 @@
 mod activation{
-    use crate::tensor::Tensor;
+    use crate::tensor::{Tensor, TensorError};
 
     pub fn sigmoid(tensor : &Tensor) -> Tensor {
         return tensor.map(|x|
@@ -14,12 +14,24 @@ mod activation{
         return tensor.map(|x| x.max(0.0));
     }
 
-    pub fn tanh(tensor : &Tensor) -> Tensor {
+    pub fn tanh(tensor: &Tensor) -> Tensor {
         return tensor.map(|x| x.tanh());
+    }
+
+    pub fn softmax(
+        tensor: &Tensor,
+        axis: usize,
+    ) -> Result<Tensor, TensorError> {
+        // \todo reduce heap allocation of temporary tensors
+        let max = tensor.max_axis(axis, true);
+        let shifted = tensor - &max;
+        let exponentials = shifted.exp();
+        let sums = exponentials.sum_axis(axis, true);
+        return Ok(&exponentials / &sums);
     }
 }
 
-mod loss{
+mod loss {
     use crate::tensor::Tensor;
     pub fn mse(tensor : &Tensor) -> Tensor {
         return tensor.map(|x| 1.0 / (1.0 + (-x).exp()));
