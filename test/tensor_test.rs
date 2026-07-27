@@ -83,8 +83,128 @@ fn computation_graph_string_describes_operation_tree() {
 
     let graph = result.computation_graph_string();
 
-    assert!(graph.contains("ScalMul(scalar=2)"));
-    assert!(graph.contains("Constant"));
+    assert_eq!(graph, "ScalMul(scalar=2)\n└──Constant\n");
+}
+
+#[test]
+fn computation_graph_records_unary_operation_chain() {
+    let tensor = Tensor::new(vec![2, 2], vec![1.0, 4.0, 9.0, 16.0]).unwrap();
+
+    let result = tensor
+        .sqrt()
+        .ln()
+        .neg()
+        .exp()
+        .pow(2)
+        .powf(0.5)
+        .sigmoid()
+        .relu()
+        .tanh()
+        .abs();
+    let graph = result.computation_graph_string();
+
+    assert_eq!(
+        graph,
+        "\
+Abs
+└──Tanh
+   └──Relu
+      └──Sigmoid
+         └──PowF(exponent=0.5)
+            └──Pow(exponent=2)
+               └──Exp
+                  └──Neg
+                     └──Ln
+                        └──Sqrt
+                           └──Constant
+"
+    );
+}
+
+#[test]
+fn computation_graph_records_binary_and_matrix_operations() {
+    let left = Tensor::ones(vec![2, 2]).unwrap();
+    let right = Tensor::full(vec![2, 2], 2.0).unwrap();
+
+    let elementwise = Tensor::multiply_elementwise(&left, &right);
+    let scaled_left = 2.0 * &elementwise;
+    let scaled_right = 3.0 * &right;
+    let added = &scaled_left + &right;
+    let matrix = &added * &scaled_right;
+    let subtracted = &left - &right;
+    let divided = &subtracted / &elementwise;
+
+    assert_eq!(
+        matrix.computation_graph_string(),
+        "\
+MatMul
+├──Add
+|  ├──ScalMul(scalar=2)
+|  |  └──ElemMul
+|  |     ├──Constant
+|  |     └──Constant
+|  └──Constant
+└──ScalMul(scalar=3)
+   └──Constant
+"
+    );
+    assert_eq!(
+        divided.computation_graph_string(),
+        "\
+Div
+├──Sub
+|  ├──Constant
+|  └──Constant
+└──ElemMul
+   ├──Constant
+   └──Constant
+"
+    );
+}
+
+#[test]
+fn computation_graph_records_transpose_and_reductions() {
+    let tensor = Tensor::new(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+
+    let transposed = tensor.transpose(&[1, 0]);
+    let reduced = transposed.sum_axis(1, true).max_axis(0, false).sum();
+    let mean = tensor.mean();
+    let mean_axis = tensor.mean_axis(1, false);
+    let max = tensor.max();
+
+    assert_eq!(
+        reduced.computation_graph_string(),
+        "\
+Sum(axis=None, keep_shape=None)
+└──Max(axis=Some(0), keep_shape=Some(false))
+   └──Sum(axis=Some(1), keep_shape=Some(true))
+      └──Transpose(axis=[1, 0])
+         └──Constant
+"
+    );
+    assert_eq!(
+        mean.computation_graph_string(),
+        "\
+ScalMul(scalar=0.25)
+└──Sum(axis=None, keep_shape=None)
+   └──Constant
+"
+    );
+    assert_eq!(
+        mean_axis.computation_graph_string(),
+        "\
+ScalMul(scalar=0.5)
+└──Sum(axis=Some(1), keep_shape=Some(false))
+   └──Constant
+"
+    );
+    assert_eq!(
+        max.computation_graph_string(),
+        "\
+Max(axis=None, keep_shape=None)
+└──Constant
+"
+    );
 }
 
 #[test]
