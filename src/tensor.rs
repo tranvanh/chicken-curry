@@ -322,7 +322,7 @@ impl Add<&Tensor> for &Tensor {
 
 impl Mul<&Tensor> for f32 {
     type Output = Tensor;
-    fn mul(self, rhs: &Tensor) -> Tensor { // self is already of type &Tensor, becase we have for &Tensor
+    fn mul(scalar: self, rhs: &Tensor) -> Tensor { // self is already of type &Tensor, becase we have for &Tensor
         let output_size: usize = rhs.shape.iter().product();
         let mut result = Vec::with_capacity(output_size);
 
