@@ -99,6 +99,7 @@ Broadcasting also allows a lower-rank tensor or a size-`1` dimension to expand
 across the other operand:
 
 ```text
+[3] + [3] -> [3]
 [2, 3] + [3] -> [2, 3]
 [2, 1, 3] + [1, 4, 3] -> [2, 4, 3]
 ```
@@ -117,11 +118,7 @@ Every element in the tensor is multiplied by the scalar.
 
 ## Unary Operations
 
-Unary tensor operations are currently defined through the crate-private
-`Unary` trait in `src/operation_trait.rs`.
-
-This trait is used inside the library and is not exposed as part of the public
-API. It provides shared elementwise behavior for:
+Unary tensor operations are implemented as `Tensor` methods:
 
 - `map`
 - `abs`
@@ -133,8 +130,8 @@ API. It provides shared elementwise behavior for:
 - `pow`
 - `powf`
 
-The central operation is `map`, which applies a function to every logical
-element and returns a new materialized tensor.
+Internally, these methods share a private `map` helper, which applies a
+function to every logical element and returns a new materialized tensor.
 
 With the view-style storage model, `map` cannot simply walk the raw shared
 storage buffer. A tensor may be non-contiguous after operations such as
@@ -217,10 +214,21 @@ offset `0 * 1 + 1 * 3 = 3`, which reads value `4`.
 
 ## Matrix Multiplication
 
-Matrix multiplication is implemented through the `*` operator:
+The `*` operator has two tensor behaviors:
+
+- if either operand has rank 1, multiplication is elementwise with broadcasting
+- if both operands have rank 2 or greater, multiplication is matrix
+  multiplication over the final two dimensions
 
 ```rust
 let result = &left * &right;
+```
+
+Rank-1 elementwise examples:
+
+```text
+[3] * [3] -> [3]
+[2, 3] * [3] -> [2, 3]
 ```
 
 For 2D tensors:

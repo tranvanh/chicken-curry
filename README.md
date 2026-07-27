@@ -34,8 +34,9 @@ Implemented so far:
 - display formatting
 - broadcasted tensor addition
 - scalar multiplication
+- elementwise multiplication for rank-1 tensor operands
 - view-style tensor transposition
-- internal unary operation trait for elementwise transforms
+- unary elementwise transforms
 - matrix multiplication
 - broadcasted batched matrix multiplication
 - basic tensor error variants
