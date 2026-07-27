@@ -163,21 +163,48 @@ fn multiplication_operator_panics_for_tensors_with_less_than_two_dimensions() {
 }
 
 #[test]
-fn multiplication_operator_panics_for_different_ranks() {
+fn multiplication_operator_broadcasts_2d_tensor_across_batch() {
     let left = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
     let right = Tensor::new(vec![1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
 
-    let result = panic::catch_unwind(|| {
-        let _ = &left * &right;
-    });
+    let result = &left * &right;
 
-    assert!(result.is_err());
+    assert_eq!(*result.get(&[0, 0, 0]).unwrap(), 7.0);
+    assert_eq!(*result.get(&[0, 0, 1]).unwrap(), 10.0);
+    assert_eq!(*result.get(&[0, 1, 0]).unwrap(), 15.0);
+    assert_eq!(*result.get(&[0, 1, 1]).unwrap(), 22.0);
 }
 
 #[test]
-fn multiplication_operator_panics_for_different_batch_shapes() {
+fn multiplication_operator_broadcasts_size_one_batch_dimension() {
+    let left = Tensor::new(
+        vec![2, 2, 2],
+        vec![
+            1.0, 2.0,
+            3.0, 4.0,
+            5.0, 6.0,
+            7.0, 8.0,
+        ],
+    )
+    .unwrap();
+    let right = Tensor::new(vec![1, 2, 2], vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+
+    let result = &left * &right;
+
+    assert_eq!(*result.get(&[0, 0, 0]).unwrap(), 1.0);
+    assert_eq!(*result.get(&[0, 0, 1]).unwrap(), 2.0);
+    assert_eq!(*result.get(&[0, 1, 0]).unwrap(), 3.0);
+    assert_eq!(*result.get(&[0, 1, 1]).unwrap(), 4.0);
+    assert_eq!(*result.get(&[1, 0, 0]).unwrap(), 5.0);
+    assert_eq!(*result.get(&[1, 0, 1]).unwrap(), 6.0);
+    assert_eq!(*result.get(&[1, 1, 0]).unwrap(), 7.0);
+    assert_eq!(*result.get(&[1, 1, 1]).unwrap(), 8.0);
+}
+
+#[test]
+fn multiplication_operator_panics_for_incompatible_batch_shapes() {
     let left = Tensor::new(vec![2, 2, 2], vec![1.0; 8]).unwrap();
-    let right = Tensor::new(vec![1, 2, 2], vec![1.0; 4]).unwrap();
+    let right = Tensor::new(vec![3, 2, 2], vec![1.0; 12]).unwrap();
 
     let result = panic::catch_unwind(|| {
         let _ = &left * &right;
