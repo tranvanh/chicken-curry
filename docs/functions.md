@@ -11,11 +11,17 @@ use chicken_curry::functions::{activation, loss};
 ## Activations
 
 Activation functions operate on `Tensor` values and return new tensors.
+`sigmoid`, `relu`, and `tanh` are also available directly as `Tensor` methods;
+these helper functions delegate to those methods.
 
 ```rust
 let y = activation::sigmoid(&tensor);
 let y = activation::relu(&tensor);
 let y = activation::tanh(&tensor);
+
+let y = tensor.sigmoid();
+let y = tensor.relu();
+let y = tensor.tanh();
 ```
 
 Behavior:

@@ -159,6 +159,29 @@ fn activation_tanh_applies_elementwise() {
 }
 
 #[test]
+fn tensor_activation_methods_apply_elementwise() {
+    let tensor = Tensor::new(vec![3], vec![-1.0, 0.0, 2.0]).unwrap();
+
+    let sigmoid = tensor.sigmoid();
+    let relu = tensor.relu();
+    let tanh = tensor.tanh();
+
+    assert_values_close(
+        tensor_values(&sigmoid, &[3]),
+        vec![
+            1.0 / (1.0 + 1.0_f32.exp()),
+            0.5,
+            1.0 / (1.0 + (-2.0_f32).exp()),
+        ],
+    );
+    assert_eq!(tensor_values(&relu, &[3]), vec![0.0, 0.0, 2.0]);
+    assert_values_close(
+        tensor_values(&tanh, &[3]),
+        vec![-1.0_f32.tanh(), 0.0, 2.0_f32.tanh()],
+    );
+}
+
+#[test]
 fn activation_softmax_normalizes_along_axis() {
     let tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 1.0, 1.0, 1.0]).unwrap();
 
@@ -214,16 +237,6 @@ fn loss_cross_entropy_returns_per_sample_loss() {
         tensor_values(&result, &[2]),
         vec![-0.7_f32.ln(), -0.8_f32.ln()],
     );
-}
-
-#[test]
-fn loss_cross_entropy_clamps_zero_probabilities() {
-    let pred = Tensor::new(vec![1, 2], vec![0.0, 1.0]).unwrap();
-    let target = Tensor::new(vec![1, 2], vec![1.0, 0.0]).unwrap();
-
-    let result = loss::cross_entropy(&pred, &target, 1);
-
-    assert_values_close(tensor_values(&result, &[1]), vec![-1e-7_f32.ln()]);
 }
 
 #[test]

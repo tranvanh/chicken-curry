@@ -177,6 +177,9 @@ Unary tensor operations are implemented as `Tensor` methods:
 - `exp`
 - `pow`
 - `powf`
+- `sigmoid`
+- `relu`
+- `tanh`
 
 The `map` method applies a function to every logical element and returns a new
 materialized tensor.
