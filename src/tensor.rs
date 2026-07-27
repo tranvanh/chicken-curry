@@ -2,6 +2,8 @@ use std::fmt;
 use std::ops::Mul;
 use std::ops::Add;
 
+use std::sync::Arc;
+
 
 #[derive(Debug)]
 pub enum TensorError {
@@ -23,8 +25,9 @@ pub enum TensorError {
 
 pub struct Tensor{
     shape: Vec<usize>,
-    data: Vec<f32>,
+    data: Arc<Vec<f32>>,
     strides: Vec<usize>,
+    offset: usize,
 }
 
 impl Tensor{
@@ -42,11 +45,12 @@ impl Tensor{
             });
         }
         let strides = Tensor::strides_for_shape(&shape);
-
+        let shared_data = Arc::new(data);
         Ok(Self {
             shape,
-            data,
-            strides
+            data: shared_data,
+            strides,
+            offset: 0,
         })
     }
 
@@ -58,7 +62,7 @@ impl Tensor{
             });
         }
 
-        let mut result : usize = 0;
+        let mut result : usize = self.offset;
         for i in 0..self.shape.len() {
             let input_index = index[i];
             let shape_index = self.shape[i];
@@ -104,7 +108,7 @@ impl Tensor{
             });
         }
         let flat_index = self.offset(index)?;
-        return Ok(&mut self.data[flat_index]);
+        return Ok(&mut Arc::make_mut(&mut self.data)[flat_index]);
     }
 
     fn print_tensor(&self, f: &mut fmt::Formatter<'_>, index: &mut Vec<usize>, dimension : usize) -> fmt::Result{
@@ -121,25 +125,49 @@ impl Tensor{
         }
 
         let flat_index = self.offset(&index).unwrap();
-        write!(f, "{}", self.data[0 + flat_index])?;
-        for index in 1..self.shape[dimension]  {
-            write!(f, ",{}", self.data[index + flat_index])?;
+        write!(f, "{}", self.data[flat_index])?;
+        for d in 1..self.shape[dimension]  {
+            index[dimension] = d;
+            let flat_index = self.offset(&index).unwrap();
+            write!(f, ",{}", self.data[flat_index])?;
         }
         writeln!(f, "]")?;
         return Ok(());
     }
 
-    fn mul_2d_flat(lhs_data: &[f32], row_lhs: usize, col_lhs: usize, rhs_data: &[f32], _row_rhs: usize, col_rhs: usize) -> Vec<f32> {
+    fn mul_2d_strided(
+        lhs: &Tensor,
+        lhs_batch_index: &[usize],
+        row_lhs: usize,
+        col_lhs: usize,
+        rhs: &Tensor,
+        rhs_batch_index: &[usize],
+        col_rhs: usize,
+    ) -> Vec<f32> {
         let mut result = vec![0.0; row_lhs * col_rhs];
+
         for row in 0..row_lhs {
             for col in 0..col_rhs {
                 let mut sum: f32 = 0.0;
+
                 for inner in 0..col_lhs {
-                    sum += lhs_data[row * col_lhs + inner] * rhs_data[inner * col_rhs + col];
+                    let mut lhs_index = lhs_batch_index.to_vec();
+                    lhs_index.push(row);
+                    lhs_index.push(inner);
+
+                    let mut rhs_index = rhs_batch_index.to_vec();
+                    rhs_index.push(inner);
+                    rhs_index.push(col);
+
+                    let lhs_offset = lhs.offset(&lhs_index).unwrap();
+                    let rhs_offset = rhs.offset(&rhs_index).unwrap();
+                    sum += lhs.data[lhs_offset] * rhs.data[rhs_offset];
                 }
+
                 result[row * col_rhs + col] = sum;
             }
         }
+
         return result;
     }
 
@@ -209,26 +237,15 @@ impl Tensor{
         return result;
     }
 
-    /// Converts a batch-only index into the flat offset where its matrix starts.
-    ///
-    /// The full tensor strides are used here, but only the leading batch
-    /// dimensions are multiplied. The remaining matrix dimensions are handled
-    /// inside `mul_2d_flat`.
-    fn batch_offset(batch_index: &[usize], strides: &[usize]) -> usize {
-        let mut result = 0;
-
-        for i in 0..batch_index.len() {
-            result += batch_index[i] * strides[i];
-        }
-
-        return result;
-    }
-
     /// Transposes the tensor by reordering axes.
     ///
     /// Each value in `axis` describes which original axis should become the
     /// axis at that position in the output. For example, `[1, 0, 2]` changes a
     /// shape `[2, 3, 4]` into `[3, 2, 4]`.
+    ///
+    /// This is a view-style transpose: the shared data buffer is not reordered.
+    /// Only shape and stride metadata change, so indexing follows the new
+    /// logical shape while still reading from the same storage.
     pub fn transpose(&mut self, axis : &[usize]) -> &Self{
         if self.shape.len() < 2 {
             panic!("Transposition requires tensors with at least 2 dimensions");
@@ -252,45 +269,19 @@ impl Tensor{
             seen[axis_index] = true;
         }
 
-        let old_shape = self.shape.clone();
-        let old_strides = self.strides.clone();
-        let old_data = self.data.clone();
         let mut new_shape = Vec::with_capacity(rank);
+        let mut new_strides = Vec::with_capacity(rank);
 
+        // For a view transpose, each output axis uses the original dimension
+        // and stride from the axis it points to. The data Arc and offset stay
+        // unchanged.
         for &axis_index in axis {
-            new_shape.push(old_shape[axis_index]);
-        }
-
-        // Transpose materializes a new row-major data buffer, so strides must
-        // be recalculated for the new shape.
-        let new_strides = Tensor::strides_for_shape(&new_shape);
-        let mut new_data = vec![0.0; old_data.len()];
-
-        for new_flat_index in 0..new_data.len() {
-            // Walk every output position, convert it to a multidimensional
-            // index, then map that output index back to the original tensor.
-            let new_index = Tensor::unravel_index(new_flat_index, &new_shape);
-            let mut old_index = vec![0; rank];
-
-            // axis[new_axis] tells which original axis is represented by this
-            // output axis, so the output coordinate is placed back there.
-            for new_axis in 0..rank {
-                old_index[axis[new_axis]] = new_index[new_axis];
-            }
-
-            // Convert the original multidimensional index into the old flat
-            // row-major offset so the matching value can be copied forward.
-            let mut old_flat_index = 0;
-            for i in 0..rank {
-                old_flat_index += old_index[i] * old_strides[i];
-            }
-
-            new_data[new_flat_index] = old_data[old_flat_index];
+            new_shape.push(self.shape[axis_index]);
+            new_strides.push(self.strides[axis_index]);
         }
 
         self.shape = new_shape;
         self.strides = new_strides;
-        self.data = new_data;
 
         return self;
     }
@@ -332,11 +323,16 @@ impl Add<&Tensor> for &Tensor {
 impl Mul<&Tensor> for f32 {
     type Output = Tensor;
     fn mul(self, rhs: &Tensor) -> Tensor { // self is already of type &Tensor, becase we have for &Tensor
-        let mut result = Tensor::new(rhs.shape.clone(), rhs.data.clone()).unwrap();
-        for element in result.data.iter_mut() {
-            *element *= self;
+        let output_size: usize = rhs.shape.iter().product();
+        let mut result = Vec::with_capacity(output_size);
+
+        for i in 0 .. output_size {
+            let output_index = Tensor::unravel_index(i, &rhs.shape);
+            let rhs_offset = rhs.offset(&output_index).unwrap();
+            result.push(self * rhs.data[rhs_offset]);
         }
-        return result;
+
+        return Tensor::new(rhs.shape.clone(), result).unwrap();
     }
 }
 
@@ -380,8 +376,6 @@ impl Mul<&Tensor> for &Tensor {
         // A 2D tensor has an empty batch shape; product([]) is 1, so this
         // same loop handles plain 2D, batched, and broadcasted multiplication.
         let batch_size: usize = output_batch_shape.iter().product();
-        let lhs_matrix_size = row_lhs * col_lhs;
-        let rhs_matrix_size = row_rhs * col_rhs;
 
         let mut result = Vec::with_capacity(batch_size * row_lhs * col_rhs);
         for batch in 0..batch_size {
@@ -392,20 +386,14 @@ impl Mul<&Tensor> for &Tensor {
             let lhs_batch_index = Tensor::broadcast_index(&output_batch_index, lhs_batch_shape);
             let rhs_batch_index = Tensor::broadcast_index(&output_batch_index, rhs_batch_shape);
 
-            // Once the source batch is known for each operand, the batch index
-            // is converted into the start offset of the contiguous matrix.
-            let lhs_start = Tensor::batch_offset(&lhs_batch_index, &self.strides);
-            let rhs_start = Tensor::batch_offset(&rhs_batch_index, &rhs.strides);
-            let lhs_end = lhs_start + lhs_matrix_size;
-            let rhs_end = rhs_start + rhs_matrix_size;
-
             // Append the matrix result for this output batch.
-            result.extend(Tensor::mul_2d_flat(
-                &self.data[lhs_start..lhs_end],
+            result.extend(Tensor::mul_2d_strided(
+                self,
+                &lhs_batch_index,
                 row_lhs,
                 col_lhs,
-                &rhs.data[rhs_start..rhs_end],
-                row_rhs,
+                rhs,
+                &rhs_batch_index,
                 col_rhs,
             ));
         }
