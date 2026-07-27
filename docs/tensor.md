@@ -45,6 +45,30 @@ Possible construction errors:
 - `TensorError::InvalidShape { expected, actual }` when the flat data length
   does not match the shape product
 
+## Initializers
+
+Convenience initializers create tensors from a shape without requiring callers
+to build the full data buffer manually.
+
+```rust
+let zeros = Tensor::zeros(vec![2, 3])?;
+let ones = Tensor::ones(vec![2, 3])?;
+let filled = Tensor::full(vec![2, 3], -2.5)?;
+let uniform = Tensor::rand(vec![2, 3])?;
+let normal = Tensor::randn(vec![2, 3])?;
+```
+
+Initializer behavior:
+
+- `zeros(shape)` fills every element with `0.0`
+- `ones(shape)` fills every element with `1.0`
+- `full(shape, value)` fills every element with `value`
+- `rand(shape)` samples each element from `[0, 1)`
+- `randn(shape)` samples each element from a standard normal distribution
+
+All initializers delegate shape validation to `Tensor::new`, so they return
+`TensorError::EmptyDimension` when any dimension is `0`.
+
 ## Reading Values
 
 ```rust

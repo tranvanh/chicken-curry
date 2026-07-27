@@ -5,12 +5,100 @@ fn tensor_2x2(data: Vec<f32>) -> Tensor {
     Tensor::new(vec![2, 2], data).expect("valid 2x2 tensor")
 }
 
+fn tensor_values(tensor: &Tensor, shape: &[usize]) -> Vec<f32> {
+    let size = shape.iter().product();
+    let mut values = Vec::with_capacity(size);
+
+    for flat_index in 0..size {
+        let mut remaining = flat_index;
+        let mut index = vec![0; shape.len()];
+
+        for i in (0..shape.len()).rev() {
+            index[i] = remaining % shape[i];
+            remaining /= shape[i];
+        }
+
+        values.push(*tensor.get(&index).unwrap());
+    }
+
+    return values;
+}
+
 fn assert_close(actual: f32, expected: f32) {
     let tolerance = 0.00001;
     assert!(
         (actual - expected).abs() < tolerance,
         "expected {expected}, got {actual}"
     );
+}
+
+#[test]
+fn zeros_creates_tensor_filled_with_zeroes() {
+    let shape = vec![2, 3];
+    let tensor = Tensor::zeros(shape.clone()).unwrap();
+
+    assert_eq!(tensor_values(&tensor, &shape), vec![0.0; 6]);
+}
+
+#[test]
+fn ones_creates_tensor_filled_with_ones() {
+    let shape = vec![2, 3];
+    let tensor = Tensor::ones(shape.clone()).unwrap();
+
+    assert_eq!(tensor_values(&tensor, &shape), vec![1.0; 6]);
+}
+
+#[test]
+fn full_creates_tensor_filled_with_requested_value() {
+    let shape = vec![2, 3];
+    let tensor = Tensor::full(shape.clone(), -2.5).unwrap();
+
+    assert_eq!(tensor_values(&tensor, &shape), vec![-2.5; 6]);
+}
+
+#[test]
+fn rand_creates_tensor_with_values_in_zero_one_range() {
+    let shape = vec![2, 3];
+    let tensor = Tensor::rand(shape.clone()).unwrap();
+
+    for value in tensor_values(&tensor, &shape) {
+        assert!(value >= 0.0);
+        assert!(value < 1.0);
+    }
+}
+
+#[test]
+fn randn_creates_tensor_with_finite_values() {
+    let shape = vec![2, 3];
+    let tensor = Tensor::randn(shape.clone()).unwrap();
+
+    for value in tensor_values(&tensor, &shape) {
+        assert!(value.is_finite());
+    }
+}
+
+#[test]
+fn initializers_reject_empty_dimensions() {
+    assert!(matches!(
+        Tensor::zeros(vec![2, 0]),
+        Err(TensorError::EmptyDimension)
+    ));
+    assert!(matches!(
+        Tensor::ones(vec![2, 0]),
+        Err(TensorError::EmptyDimension)
+    ));
+    assert!(matches!(
+        Tensor::full(vec![2, 0], 3.5),
+        Err(TensorError::EmptyDimension)
+    ));
+    assert!(matches!(
+        Tensor::rand(vec![2, 0]),
+        Err(TensorError::EmptyDimension)
+    ));
+    assert!(matches!(
+        Tensor::randn(vec![2, 0]),
+        Err(TensorError::EmptyDimension)
+    ));
 }
 
 #[test]
