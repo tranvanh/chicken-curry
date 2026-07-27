@@ -131,21 +131,11 @@ fn addition_operator_broadcasts_vector_across_matrix_rows() {
 
 #[test]
 fn addition_operator_broadcasts_multiple_dimensions() {
-    let left = Tensor::new(
-        vec![2, 1, 3],
-        vec![
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-        ],
-    )
-    .unwrap();
+    let left = Tensor::new(vec![2, 1, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
     let right = Tensor::new(
         vec![1, 4, 3],
         vec![
-            10.0, 20.0, 30.0,
-            40.0, 50.0, 60.0,
-            70.0, 80.0, 90.0,
-            100.0, 110.0, 120.0,
+            10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0, 110.0, 120.0,
         ],
     )
     .unwrap();
@@ -300,14 +290,7 @@ fn unary_math_operations_apply_elementwise() {
 
 #[test]
 fn unary_operations_read_transposed_view_in_logical_order() {
-    let mut tensor = Tensor::new(
-        vec![2, 3],
-        vec![
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-        ],
-    )
-    .unwrap();
+    let mut tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
 
     tensor.t();
     let result = tensor.neg();
@@ -322,14 +305,7 @@ fn unary_operations_read_transposed_view_in_logical_order() {
 
 #[test]
 fn unary_map_reads_transposed_view_in_logical_order() {
-    let mut tensor = Tensor::new(
-        vec![2, 3],
-        vec![
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-        ],
-    )
-    .unwrap();
+    let mut tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
 
     tensor.t();
     let result = tensor.map(|x| x * 10.0);
@@ -343,15 +319,111 @@ fn unary_map_reads_transposed_view_in_logical_order() {
 }
 
 #[test]
+fn sum_axis_reduces_requested_dimension() {
+    let tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+
+    let rows = tensor.sum_axis(0, false);
+    let columns = tensor.sum_axis(1, false);
+
+    assert_eq!(tensor_values(&rows, &[3]), vec![5.0, 7.0, 9.0]);
+    assert_eq!(tensor_values(&columns, &[2]), vec![6.0, 15.0]);
+}
+
+#[test]
+fn mean_axis_reduces_requested_dimension() {
+    let tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+
+    let rows = tensor.mean_axis(0, false);
+    let columns = tensor.mean_axis(1, false);
+
+    assert_eq!(tensor_values(&rows, &[3]), vec![2.5, 3.5, 4.5]);
+    assert_eq!(tensor_values(&columns, &[2]), vec![2.0, 5.0]);
+}
+
+#[test]
+fn max_axis_reduces_requested_dimension() {
+    let tensor = Tensor::new(vec![2, 3], vec![1.0, -2.0, 3.0, 4.0, 5.0, -6.0]).unwrap();
+
+    let rows = tensor.max_axis(0, false);
+    let columns = tensor.max_axis(1, false);
+
+    assert_eq!(tensor_values(&rows, &[3]), vec![4.0, 5.0, 3.0]);
+    assert_eq!(tensor_values(&columns, &[2]), vec![3.0, 5.0]);
+}
+
+#[test]
+fn axis_reductions_can_keep_reduced_dimension() {
+    let tensor = Tensor::new(vec![2, 3], vec![1.0, -2.0, 3.0, 4.0, 5.0, -6.0]).unwrap();
+
+    let sum_rows = tensor.sum_axis(0, true);
+    let mean_columns = tensor.mean_axis(1, true);
+    let max_columns = tensor.max_axis(1, true);
+
+    assert_eq!(tensor_values(&sum_rows, &[1, 3]), vec![5.0, 3.0, -3.0]);
+    assert_eq!(tensor_values(&mean_columns, &[2, 1]), vec![2.0 / 3.0, 1.0]);
+    assert_eq!(tensor_values(&max_columns, &[2, 1]), vec![3.0, 5.0]);
+}
+
+#[test]
+fn axis_reductions_reduce_rank_one_tensor_to_single_value() {
+    let tensor = Tensor::new(vec![3], vec![1.0, -2.0, 5.0]).unwrap();
+
+    let sum = tensor.sum_axis(0, false);
+    let mean = tensor.mean_axis(0, false);
+    let max = tensor.max_axis(0, false);
+
+    assert_eq!(tensor_values(&sum, &[1]), vec![4.0]);
+    assert_close(*mean.get(&[0]).unwrap(), 4.0 / 3.0);
+    assert_eq!(tensor_values(&max, &[1]), vec![5.0]);
+}
+
+#[test]
+fn axis_reductions_keep_rank_one_shape_when_requested() {
+    let tensor = Tensor::new(vec![3], vec![1.0, -2.0, 5.0]).unwrap();
+
+    let sum = tensor.sum_axis(0, true);
+    let mean = tensor.mean_axis(0, true);
+    let max = tensor.max_axis(0, true);
+
+    assert_eq!(tensor_values(&sum, &[1]), vec![4.0]);
+    assert_close(*mean.get(&[0]).unwrap(), 4.0 / 3.0);
+    assert_eq!(tensor_values(&max, &[1]), vec![5.0]);
+}
+
+#[test]
+fn axis_reductions_read_transposed_view_in_logical_order() {
+    let mut tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+
+    tensor.t();
+
+    assert_eq!(
+        tensor_values(&tensor.sum_axis(0, false), &[2]),
+        vec![6.0, 15.0]
+    );
+    assert_eq!(
+        tensor_values(&tensor.sum_axis(1, false), &[3]),
+        vec![5.0, 7.0, 9.0]
+    );
+    assert_eq!(
+        tensor_values(&tensor.max_axis(1, false), &[3]),
+        vec![4.0, 5.0, 6.0]
+    );
+}
+
+#[test]
+fn axis_reductions_panic_for_out_of_bounds_axis() {
+    let tensor = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
+
+    let result = panic::catch_unwind(|| {
+        tensor.sum_axis(2, false);
+    });
+
+    assert!(result.is_err());
+}
+
+#[test]
 fn t_transposes_2d_tensor() {
-    let mut tensor = Tensor::new(
-        vec![2, 3],
-        vec![
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-        ],
-    )
-    .unwrap();
+    let mut tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
 
     tensor.t();
 
@@ -369,10 +441,7 @@ fn t_transposes_last_two_dimensions_for_batched_tensor() {
     let mut tensor = Tensor::new(
         vec![2, 2, 3],
         vec![
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-            7.0, 8.0, 9.0,
-            10.0, 11.0, 12.0,
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
         ],
     )
     .unwrap();
@@ -392,11 +461,8 @@ fn t_transposes_last_two_dimensions_for_batched_tensor() {
 
 #[test]
 fn transpose_reorders_arbitrary_axes() {
-    let mut tensor = Tensor::new(
-        vec![2, 3, 4],
-        (1..=24).map(|value| value as f32).collect(),
-    )
-    .unwrap();
+    let mut tensor =
+        Tensor::new(vec![2, 3, 4], (1..=24).map(|value| value as f32).collect()).unwrap();
 
     tensor.transpose(&[1, 0, 2]);
 
@@ -409,14 +475,7 @@ fn transpose_reorders_arbitrary_axes() {
 
 #[test]
 fn scalar_multiplication_reads_transposed_view_in_logical_order() {
-    let mut tensor = Tensor::new(
-        vec![2, 3],
-        vec![
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-        ],
-    )
-    .unwrap();
+    let mut tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
 
     tensor.t();
     let result = 2.0 * &tensor;
@@ -431,22 +490,8 @@ fn scalar_multiplication_reads_transposed_view_in_logical_order() {
 
 #[test]
 fn multiplication_operator_reads_transposed_view_with_strides() {
-    let left = Tensor::new(
-        vec![2, 3],
-        vec![
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-        ],
-    )
-    .unwrap();
-    let mut right = Tensor::new(
-        vec![2, 3],
-        vec![
-            7.0, 8.0, 9.0,
-            10.0, 11.0, 12.0,
-        ],
-    )
-    .unwrap();
+    let left = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let mut right = Tensor::new(vec![2, 3], vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0]).unwrap();
 
     right.t();
     let result = &left * &right;
@@ -476,23 +521,8 @@ fn transpose_panics_for_invalid_axis_mapping() {
 
 #[test]
 fn multiplication_operator_multiplies_two_2d_tensors() {
-    let left = Tensor::new(
-        vec![2, 3],
-        vec![
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-        ],
-    )
-    .unwrap();
-    let right = Tensor::new(
-        vec![3, 2],
-        vec![
-            7.0, 8.0,
-            9.0, 10.0,
-            11.0, 12.0,
-        ],
-    )
-    .unwrap();
+    let left = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let right = Tensor::new(vec![3, 2], vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0]).unwrap();
 
     let result = &left * &right;
 
@@ -506,23 +536,13 @@ fn multiplication_operator_multiplies_two_2d_tensors() {
 fn multiplication_operator_multiplies_batches_of_2d_tensors() {
     let left = Tensor::new(
         vec![2, 2, 3],
-        vec![
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-            2.0, 0.0, 1.0,
-            3.0, 1.0, 4.0,
-        ],
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 2.0, 0.0, 1.0, 3.0, 1.0, 4.0],
     )
     .unwrap();
     let right = Tensor::new(
         vec![2, 3, 2],
         vec![
-            7.0, 8.0,
-            9.0, 10.0,
-            11.0, 12.0,
-            1.0, 2.0,
-            3.0, 4.0,
-            5.0, 6.0,
+            7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0,
         ],
     )
     .unwrap();
@@ -544,32 +564,16 @@ fn multiplication_operator_multiplies_4d_batches_of_2d_tensors() {
     let left = Tensor::new(
         vec![2, 2, 2, 3],
         vec![
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-            2.0, 0.0, 1.0,
-            3.0, 1.0, 4.0,
-            1.0, -1.0, 2.0,
-            0.0, 3.0, 1.0,
-            0.5, 1.0, 1.5,
-            2.0, -1.0, 0.0,
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 2.0, 0.0, 1.0, 3.0, 1.0, 4.0, 1.0, -1.0, 2.0, 0.0, 3.0,
+            1.0, 0.5, 1.0, 1.5, 2.0, -1.0, 0.0,
         ],
     )
     .unwrap();
     let right = Tensor::new(
         vec![2, 2, 3, 2],
         vec![
-            7.0, 8.0,
-            9.0, 10.0,
-            11.0, 12.0,
-            1.0, 2.0,
-            3.0, 4.0,
-            5.0, 6.0,
-            2.0, 0.0,
-            -1.0, 4.0,
-            3.0, 5.0,
-            4.0, 1.0,
-            0.0, 2.0,
-            -2.0, 3.0,
+            7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 2.0, 0.0, -1.0, 4.0,
+            3.0, 5.0, 4.0, 1.0, 0.0, 2.0, -2.0, 3.0,
         ],
     )
     .unwrap();
@@ -621,16 +625,7 @@ fn multiplication_operator_broadcasts_2d_tensor_across_batch() {
 
 #[test]
 fn multiplication_operator_broadcasts_size_one_batch_dimension() {
-    let left = Tensor::new(
-        vec![2, 2, 2],
-        vec![
-            1.0, 2.0,
-            3.0, 4.0,
-            5.0, 6.0,
-            7.0, 8.0,
-        ],
-    )
-    .unwrap();
+    let left = Tensor::new(vec![2, 2, 2], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).unwrap();
     let right = Tensor::new(vec![1, 2, 2], vec![1.0, 0.0, 0.0, 1.0]).unwrap();
 
     let result = &left * &right;
