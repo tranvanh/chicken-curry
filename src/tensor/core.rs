@@ -593,7 +593,7 @@ impl TensorCore {
     }
 
     pub(super) fn mul_scalar(&self, scalar: f32, tensor: &Tensor) -> Self {
-        self.map(|x| scalar * x, TensorOperation::ScalMul, tensor)
+        self.map(|x| scalar * x, TensorOperation::ScalMul{scalar}, tensor)
     }
 
     // Matrix helpers

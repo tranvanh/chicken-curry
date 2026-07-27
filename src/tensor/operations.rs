@@ -5,7 +5,9 @@ pub(super) enum TensorOperation {
     Add,
     Sub,
     Div,
-    ScalMul,
+    ScalMul{
+        scalar: f32
+    },
     ElemMul,
     MatMul,
     Transpose{

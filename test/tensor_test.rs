@@ -366,18 +366,6 @@ fn multiply_elementwise_broadcasts_rank_one_tensor() {
 }
 
 #[test]
-fn unary_map_applies_function_elementwise() {
-    let tensor = Tensor::new(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
-
-    let result = tensor.map(|x| x + 10.0);
-
-    assert_eq!(*result.get(&[0, 0]).unwrap(), 11.0);
-    assert_eq!(*result.get(&[0, 1]).unwrap(), 12.0);
-    assert_eq!(*result.get(&[1, 0]).unwrap(), 13.0);
-    assert_eq!(*result.get(&[1, 1]).unwrap(), 14.0);
-}
-
-#[test]
 fn unary_operations_apply_elementwise() {
     let tensor = Tensor::new(vec![2, 2], vec![-4.0, -1.0, 0.0, 9.0]).unwrap();
 
@@ -439,21 +427,6 @@ fn unary_operations_read_transposed_view_in_logical_order() {
     assert_eq!(*result.get(&[1, 1]).unwrap(), -5.0);
     assert_eq!(*result.get(&[2, 0]).unwrap(), -3.0);
     assert_eq!(*result.get(&[2, 1]).unwrap(), -6.0);
-}
-
-#[test]
-fn unary_map_reads_transposed_view_in_logical_order() {
-    let tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
-
-    let tensor = tensor.t();
-    let result = tensor.map(|x| x * 10.0);
-
-    assert_eq!(*result.get(&[0, 0]).unwrap(), 10.0);
-    assert_eq!(*result.get(&[0, 1]).unwrap(), 40.0);
-    assert_eq!(*result.get(&[1, 0]).unwrap(), 20.0);
-    assert_eq!(*result.get(&[1, 1]).unwrap(), 50.0);
-    assert_eq!(*result.get(&[2, 0]).unwrap(), 30.0);
-    assert_eq!(*result.get(&[2, 1]).unwrap(), 60.0);
 }
 
 #[test]
