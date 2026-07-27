@@ -412,6 +412,13 @@ impl Tensor{
         self.visit(|x| sum += x);
         return sum;
     }
+
+    fn max_float(&self) -> f32 {
+        let mut max  = 0.0;
+        self.visit(|x| if x > max { max = x; } else { max = x });
+        return max;
+    }
+
     pub fn mean(&self) -> Self {
         let output_size: usize = self.shape.iter().product();
         let sum  = Tensor::sum_float(&self);
@@ -420,6 +427,10 @@ impl Tensor{
     }
     pub fn sum(&self) -> Self {
         return Tensor::new(vec![1], vec![Tensor::sum_float(&self)]).unwrap();
+    }
+
+    pub fn max(&self) -> Self {
+        return Tensor::new(vec![1], vec![Tensor::max_float(&self)]).unwrap();
     }
 
     fn elementwise_binary<F>(lhs: &Tensor, rhs: &Tensor, f: F) -> Tensor
