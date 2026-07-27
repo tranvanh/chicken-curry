@@ -115,6 +115,54 @@ let result = 2.0 * &tensor;
 
 Every element in the tensor is multiplied by the scalar.
 
+## Unary Operations
+
+Unary tensor operations are currently defined through the crate-private
+`Unary` trait in `src/operation_trait.rs`.
+
+This trait is used inside the library and is not exposed as part of the public
+API. It provides shared elementwise behavior for:
+
+- `map`
+- `abs`
+- `sqrt`
+- `ln`
+- `relu`
+- `neg`
+- `exp`
+- `pow`
+- `powf`
+
+The central operation is `map`, which applies a function to every logical
+element and returns a new materialized tensor.
+
+With the view-style storage model, `map` cannot simply walk the raw shared
+storage buffer. A tensor may be non-contiguous after operations such as
+transpose, so `map` iterates over the tensor's logical output indexes and uses
+shape, stride, and offset metadata to find each input value.
+
+For example:
+
+```text
+original shape:   [2, 3]
+original strides: [3, 1]
+data:             [1, 2, 3, 4, 5, 6]
+
+after t():
+shape:   [3, 2]
+strides: [1, 3]
+logical: [[1, 4], [2, 5], [3, 6]]
+```
+
+Applying `map(|x| x * 10.0)` to the transposed view must produce logical
+values:
+
+```text
+[[10, 40], [20, 50], [30, 60]]
+```
+
+The result is returned as a new contiguous tensor.
+
 ## Transpose
 
 General transposition is implemented by reordering axes:

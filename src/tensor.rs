@@ -421,7 +421,7 @@ impl Unary for Tensor {
         // data buffer may no longer be contiguous for this shape, so each
         // logical output index must be resolved through shape/stride/offset
         // metadata before reading the input value. Creating the new tensor
-        // would make it seem as if it was originally contigous
+        // materializes the result as a contiguous tensor.
         for i in 0..output_size {
             let output_index = Tensor::unravel_index(i, &self.shape);
             let flat_index = self.get_flat_index(&output_index).unwrap();
@@ -478,5 +478,108 @@ impl fmt::Display for Tensor {
         write!(f, ")\n")?;
         let mut index = vec![0; self.shape.len()];
         return self.print_tensor(f, &mut index, 0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::operation_trait::Unary;
+
+    fn assert_close(actual: f32, expected: f32) {
+        let tolerance = 0.00001;
+        assert!(
+            (actual - expected).abs() < tolerance,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn unary_map_applies_function_elementwise() {
+        let tensor = Tensor::new(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+
+        let result = tensor.map(|x| x + 10.0);
+
+        assert_eq!(*result.get(&[0, 0]).unwrap(), 11.0);
+        assert_eq!(*result.get(&[0, 1]).unwrap(), 12.0);
+        assert_eq!(*result.get(&[1, 0]).unwrap(), 13.0);
+        assert_eq!(*result.get(&[1, 1]).unwrap(), 14.0);
+    }
+
+    #[test]
+    fn unary_operations_apply_elementwise() {
+        let tensor = Tensor::new(vec![2, 2], vec![-4.0, -1.0, 0.0, 9.0]).unwrap();
+
+        let abs = tensor.abs();
+        let relu = tensor.relu();
+        let neg = tensor.neg();
+
+        assert_eq!(*abs.get(&[0, 0]).unwrap(), 4.0);
+        assert_eq!(*abs.get(&[0, 1]).unwrap(), 1.0);
+        assert_eq!(*abs.get(&[1, 0]).unwrap(), 0.0);
+        assert_eq!(*abs.get(&[1, 1]).unwrap(), 9.0);
+
+        assert_eq!(*relu.get(&[0, 0]).unwrap(), 0.0);
+        assert_eq!(*relu.get(&[0, 1]).unwrap(), 0.0);
+        assert_eq!(*relu.get(&[1, 0]).unwrap(), 0.0);
+        assert_eq!(*relu.get(&[1, 1]).unwrap(), 9.0);
+
+        assert_eq!(*neg.get(&[0, 0]).unwrap(), 4.0);
+        assert_eq!(*neg.get(&[0, 1]).unwrap(), 1.0);
+        assert_eq!(*neg.get(&[1, 0]).unwrap(), -0.0);
+        assert_eq!(*neg.get(&[1, 1]).unwrap(), -9.0);
+    }
+
+    #[test]
+    fn unary_math_operations_apply_elementwise() {
+        let tensor = Tensor::new(vec![2, 2], vec![1.0, 4.0, 9.0, 16.0]).unwrap();
+
+        let sqrt = tensor.sqrt();
+        let ln = tensor.ln();
+        let exp = tensor.exp();
+        let pow = tensor.pow(2);
+        let powf = tensor.powf(0.5);
+
+        assert_eq!(*sqrt.get(&[0, 0]).unwrap(), 1.0);
+        assert_eq!(*sqrt.get(&[0, 1]).unwrap(), 2.0);
+        assert_eq!(*sqrt.get(&[1, 0]).unwrap(), 3.0);
+        assert_eq!(*sqrt.get(&[1, 1]).unwrap(), 4.0);
+
+        assert_close(*ln.get(&[0, 0]).unwrap(), 1.0_f32.ln());
+        assert_close(*ln.get(&[0, 1]).unwrap(), 4.0_f32.ln());
+        assert_close(*exp.get(&[0, 0]).unwrap(), 1.0_f32.exp());
+        assert_close(*exp.get(&[1, 1]).unwrap(), 16.0_f32.exp());
+
+        assert_eq!(*pow.get(&[0, 0]).unwrap(), 1.0);
+        assert_eq!(*pow.get(&[0, 1]).unwrap(), 16.0);
+        assert_eq!(*pow.get(&[1, 0]).unwrap(), 81.0);
+        assert_eq!(*pow.get(&[1, 1]).unwrap(), 256.0);
+
+        assert_eq!(*powf.get(&[0, 0]).unwrap(), 1.0);
+        assert_eq!(*powf.get(&[0, 1]).unwrap(), 2.0);
+        assert_eq!(*powf.get(&[1, 0]).unwrap(), 3.0);
+        assert_eq!(*powf.get(&[1, 1]).unwrap(), 4.0);
+    }
+
+    #[test]
+    fn unary_map_reads_transposed_view_in_logical_order() {
+        let mut tensor = Tensor::new(
+            vec![2, 3],
+            vec![
+                1.0, 2.0, 3.0,
+                4.0, 5.0, 6.0,
+            ],
+        )
+        .unwrap();
+
+        tensor.t();
+        let result = tensor.map(|x| x * 10.0);
+
+        assert_eq!(*result.get(&[0, 0]).unwrap(), 10.0);
+        assert_eq!(*result.get(&[0, 1]).unwrap(), 40.0);
+        assert_eq!(*result.get(&[1, 0]).unwrap(), 20.0);
+        assert_eq!(*result.get(&[1, 1]).unwrap(), 50.0);
+        assert_eq!(*result.get(&[2, 0]).unwrap(), 30.0);
+        assert_eq!(*result.get(&[2, 1]).unwrap(), 60.0);
     }
 }
