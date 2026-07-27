@@ -72,7 +72,8 @@ Tensor addition is implemented for references:
 let result = &left + &right;
 ```
 
-Both tensors must have the exact same shape. The operation is elementwise.
+The operation is elementwise. Input tensors may have the same shape or
+compatible broadcast shapes.
 
 Example:
 
@@ -89,7 +90,15 @@ The result contains:
 [11.0, 22.0, 33.0, 44.0]
 ```
 
-If shapes do not match, the current implementation panics.
+Broadcasting also allows a lower-rank tensor or a size-`1` dimension to expand
+across the other operand:
+
+```text
+[2, 3] + [3] -> [2, 3]
+[2, 1, 3] + [1, 4, 3] -> [2, 4, 3]
+```
+
+If shapes cannot be broadcast together, the current implementation panics.
 
 ## Scalar Multiplication
 
@@ -160,20 +169,28 @@ Examples:
 [4, 5, 2, 3] * [4, 5, 3, 6] -> [4, 5, 2, 6]
 ```
 
-## Batch Broadcasting
+## Broadcasting
 
-Batched matrix multiplication supports broadcasting across the leading batch
-dimensions. The final two dimensions are matrix dimensions and are not
-broadcasted.
+Elementwise tensor operations support broadcasting across the full tensor
+shape. Batched matrix multiplication supports broadcasting only across the
+leading batch dimensions; the final two dimensions are matrix dimensions and
+are not broadcasted.
 
-Broadcasting compares batch dimensions from right to left:
+Broadcasting compares dimensions from right to left:
 
 - equal dimensions are compatible
 - a dimension with size `1` can expand to match the other side
 - a missing leading dimension is treated like size `1`
 - two different non-`1` dimensions are incompatible
 
-Examples:
+Elementwise examples:
+
+```text
+[2, 3] + [3] -> [2, 3]
+[2, 1, 3] + [1, 4, 3] -> [2, 4, 3]
+```
+
+Batched matrix multiplication examples:
 
 ```text
 [2, 1, 3, 4] * [1, 5, 4, 6] -> [2, 5, 3, 6]

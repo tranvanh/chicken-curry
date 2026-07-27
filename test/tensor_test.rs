@@ -19,6 +19,50 @@ fn adds_two_tensors_elementwise() {
 }
 
 #[test]
+fn addition_operator_broadcasts_vector_across_matrix_rows() {
+    let left = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let right = Tensor::new(vec![3], vec![10.0, 20.0, 30.0]).unwrap();
+
+    let result = &left + &right;
+
+    assert_eq!(*result.get(&[0, 0]).unwrap(), 11.0);
+    assert_eq!(*result.get(&[0, 1]).unwrap(), 22.0);
+    assert_eq!(*result.get(&[0, 2]).unwrap(), 33.0);
+    assert_eq!(*result.get(&[1, 0]).unwrap(), 14.0);
+    assert_eq!(*result.get(&[1, 1]).unwrap(), 25.0);
+    assert_eq!(*result.get(&[1, 2]).unwrap(), 36.0);
+}
+
+#[test]
+fn addition_operator_broadcasts_multiple_dimensions() {
+    let left = Tensor::new(
+        vec![2, 1, 3],
+        vec![
+            1.0, 2.0, 3.0,
+            4.0, 5.0, 6.0,
+        ],
+    )
+    .unwrap();
+    let right = Tensor::new(
+        vec![1, 4, 3],
+        vec![
+            10.0, 20.0, 30.0,
+            40.0, 50.0, 60.0,
+            70.0, 80.0, 90.0,
+            100.0, 110.0, 120.0,
+        ],
+    )
+    .unwrap();
+
+    let result = &left + &right;
+
+    assert_eq!(*result.get(&[0, 0, 0]).unwrap(), 11.0);
+    assert_eq!(*result.get(&[0, 3, 2]).unwrap(), 123.0);
+    assert_eq!(*result.get(&[1, 0, 0]).unwrap(), 14.0);
+    assert_eq!(*result.get(&[1, 3, 2]).unwrap(), 126.0);
+}
+
+#[test]
 fn multiplies_tensor_by_scalar() {
     let tensor = tensor_2x2(vec![1.5, -2.0, 0.0, 4.25]);
 

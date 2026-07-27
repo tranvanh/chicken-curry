@@ -222,15 +222,21 @@ impl Tensor{
 impl Add<&Tensor> for &Tensor {
     type Output = Tensor;
     fn add(self, rhs: &Tensor) -> Tensor { // self is already of type &Tensor, becase we have for &Tensor
-        if self.shape != rhs.shape {
-            panic!("Shapes don't match");
-        }
-        let mut result : Vec<f32> = vec![0.0; self.data.len()];
+        let output_shape = Tensor::get_broadcast_shape(&self.shape, &rhs.shape).unwrap();
+        let output_size: usize = output_shape.iter().product();
+        let mut result : Vec<f32> = Vec::with_capacity(output_size);
 
-        for i in 0 .. self.data.len() {
-            result[i] = self.data[i] + rhs.data[i];
+        for i in 0 .. output_size {
+            let output_index = Tensor::unravel_index(i, &output_shape);
+            let lhs_index = Tensor::broadcast_index(&output_index, &self.shape);
+            let rhs_index = Tensor::broadcast_index(&output_index, &rhs.shape);
+            let lhs_offset = self.offset(&lhs_index).unwrap();
+            let rhs_offset = rhs.offset(&rhs_index).unwrap();
+
+            result.push(self.data[lhs_offset] + rhs.data[rhs_offset]);
         }
-        return Tensor::new(rhs.shape.clone(), result).unwrap();
+
+        return Tensor::new(output_shape, result).unwrap();
     }
 }
 
