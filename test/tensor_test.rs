@@ -183,28 +183,36 @@ fn activation_softmax_reports_out_of_bounds_axis() {
 }
 
 #[test]
-fn loss_mse_matches_current_elementwise_implementation() {
-    let tensor = Tensor::new(vec![3], vec![-1.0, 0.0, 1.0]).unwrap();
+fn loss_mse_returns_mean_squared_error() {
+    let pred = Tensor::new(vec![3], vec![1.0, 2.0, 4.0]).unwrap();
+    let target = Tensor::new(vec![3], vec![1.0, 0.0, 1.0]).unwrap();
 
-    let result = loss::mse(&tensor);
+    let result = loss::mse(&pred, &target);
+
+    assert_close(*result.get(&[0]).unwrap(), (0.0 + 4.0 + 9.0) / 3.0);
+}
+
+#[test]
+fn loss_cross_entropy_returns_per_sample_loss() {
+    let pred = Tensor::new(vec![2, 3], vec![0.7, 0.2, 0.1, 0.1, 0.8, 0.1]).unwrap();
+    let target = Tensor::new(vec![2, 3], vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0]).unwrap();
+
+    let result = loss::cross_entropy(&pred, &target, 1);
 
     assert_values_close(
-        tensor_values(&result, &[3]),
-        vec![
-            1.0 / (1.0 + 1.0_f32.exp()),
-            0.5,
-            1.0 / (1.0 + (-1.0_f32).exp()),
-        ],
+        tensor_values(&result, &[2]),
+        vec![-0.7_f32.ln(), -0.8_f32.ln()],
     );
 }
 
 #[test]
-fn loss_cross_entropy_matches_current_elementwise_implementation() {
-    let tensor = Tensor::new(vec![3], vec![-2.0, 0.0, 3.0]).unwrap();
+fn loss_cross_entropy_clamps_zero_probabilities() {
+    let pred = Tensor::new(vec![1, 2], vec![0.0, 1.0]).unwrap();
+    let target = Tensor::new(vec![1, 2], vec![1.0, 0.0]).unwrap();
 
-    let result = loss::cross_entropy(&tensor);
+    let result = loss::cross_entropy(&pred, &target, 1);
 
-    assert_eq!(tensor_values(&result, &[3]), vec![0.0, 0.0, 3.0]);
+    assert_values_close(tensor_values(&result, &[1]), vec![-1e-7_f32.ln()]);
 }
 
 #[test]
