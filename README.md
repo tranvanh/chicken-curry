@@ -28,21 +28,29 @@ The project is currently in the tensor playground stage.
 Implemented so far:
 
 - tensor construction from a shape and flat `Vec<f32>` data buffer
+- tensor initializers for zero, one, constant, uniform random, and normal random
+  values
+- shared-storage tensor views using shape, stride, and offset metadata
 - row-major stride calculation
 - indexed tensor reads
 - display formatting
-- tensor addition
+- broadcasted tensor addition
 - scalar multiplication
+- elementwise multiplication for rank-1 tensor operands
+- view-style tensor transposition
+- unary elementwise transforms
 - matrix multiplication
-- batched matrix multiplication over matching leading dimensions
+- broadcasted batched matrix multiplication
 - basic tensor error variants
-- Rust tests for tensor creation, indexing, addition, scalar multiplication,
-  matrix multiplication, batched matrix multiplication, and failure paths
+- Rust tests for tensor creation, initializers, indexing, addition, scalar
+  multiplication, unary operations, transposition, matrix multiplication,
+  batched matrix multiplication, broadcasting, view behavior, and failure paths
 
 ## Documentation
 
-- [Tensor](docs/tensor.md) - tensor API, indexing, arithmetic, matrix
-  multiplication, and batch broadcasting notes
+- [Tensor](docs/tensor.md) - tensor API, initializers, view storage, indexing,
+  arithmetic, transposition, unary operations, matrix multiplication, and
+  broadcasting notes
 
 ## Running Tests
 
@@ -50,8 +58,9 @@ Implemented so far:
 cargo test
 ```
 
-The test suite currently covers tensor construction, indexing, arithmetic,
-matrix multiplication, batched matrix multiplication, and several failure paths.
+The test suite currently covers tensor construction, initializers, indexing,
+arithmetic, unary operations, transposition, matrix multiplication, batched
+matrix multiplication, broadcasting, view behavior, and several failure paths.
 
 ## Continuous Integration
 

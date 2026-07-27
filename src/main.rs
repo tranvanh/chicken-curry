@@ -1,5 +1,4 @@
-mod tensor;
-use tensor::Tensor;
+use chicken_curry::tensor::Tensor;
 
 fn main(){
     let tens = Tensor::new(

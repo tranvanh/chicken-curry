@@ -2,6 +2,8 @@ use std::fmt;
 use std::ops::Mul;
 use std::ops::Add;
 
+use std::sync::Arc;
+use rand::random;
 
 #[derive(Debug)]
 pub enum TensorError {
@@ -23,8 +25,9 @@ pub enum TensorError {
 
 pub struct Tensor{
     shape: Vec<usize>,
-    data: Vec<f32>,
+    data: Arc<Vec<f32>>,
     strides: Vec<usize>,
+    offset: usize,
 }
 
 impl Tensor{
@@ -41,21 +44,65 @@ impl Tensor{
                 actual: data.len(),
             });
         }
-        let mut strides: Vec<usize> = Vec::with_capacity(shape.len());
-        for d in 0..shape.len()-1 {
-           let subset : &[usize] = &shape[d+1..];
-           strides.push(subset.iter().product());
-        }
-        strides.push(1);
-
+        let strides = Tensor::strides_for_shape(&shape);
+        let shared_data = Arc::new(data);
         Ok(Self {
             shape,
-            data,
-            strides
+            data: shared_data,
+            strides,
+            offset: 0,
         })
     }
 
-    fn offset(&self, index: &[usize]) -> Result<usize, TensorError> {
+    pub fn zeros(shape: Vec<usize>) -> Result<Self, TensorError>{
+        let size = shape.iter().product();
+        return Tensor::new(shape, vec![0.0; size]);
+    }
+
+    pub fn ones(shape: Vec<usize>) -> Result<Self, TensorError>{
+        let size = shape.iter().product();
+        return Tensor::new(shape, vec![1.0; size]);
+    }
+
+    pub fn full(shape: Vec<usize>, x : f32) -> Result<Self, TensorError>{
+        let size = shape.iter().product();
+        return Tensor::new(shape, vec![x; size]);
+    }
+
+    /// Creates a tensor filled with uniformly distributed random values.
+    ///
+    /// Each element is sampled from the half-open range `[0, 1)`.
+    /// Shape validation is delegated to `Tensor::new`, so empty dimensions are
+    /// rejected the same way as other constructors.
+    pub fn rand(shape: Vec<usize>) -> Result<Self, TensorError>{
+        let size = shape.iter().product();
+        let data = (0..size).map(|_| random::<f32>()).collect();
+        return Tensor::new(shape, data);
+    }
+
+    /// Creates a tensor filled with standard normally distributed random values.
+    ///
+    /// The generated values have mean `0` and standard deviation `1`. Unlike
+    /// `rand`, these values are not constrained to `[0, 1)`.
+    /// Shape validation is delegated to `Tensor::new`.
+    pub fn randn(shape: Vec<usize>) -> Result<Self, TensorError>{
+        let size = shape.iter().product();
+        let data = (0..size).map(|_| Tensor::standard_normal()).collect();
+        return Tensor::new(shape, data);
+    }
+
+    /// Samples one value from the standard normal distribution.
+    ///
+    /// Uses the Box-Muller transform to convert two uniform random values into
+    /// one normally distributed value. `u1` is clamped away from zero because
+    /// `ln(0)` is negative infinity.
+    fn standard_normal() -> f32 {
+        let u1 = random::<f32>().max(f32::MIN_POSITIVE);
+        let u2 = random::<f32>();
+        return (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos();
+    }
+
+    fn get_flat_index(&self, index: &[usize]) -> Result<usize, TensorError> {
         if index.len() != self.shape.len() {
             return Err(TensorError::ShapeMismatch {
                 expected: index.len(),
@@ -63,7 +110,7 @@ impl Tensor{
             });
         }
 
-        let mut result : usize = 0;
+        let mut result : usize = self.offset;
         for i in 0..self.shape.len() {
             let input_index = index[i];
             let shape_index = self.shape[i];
@@ -77,6 +124,19 @@ impl Tensor{
         }
         return Ok(result);
     }
+
+    fn strides_for_shape(shape: &[usize]) -> Vec<usize> {
+        let mut strides: Vec<usize> = Vec::with_capacity(shape.len());
+
+        for d in 0..shape.len() - 1 {
+            let subset : &[usize] = &shape[d + 1..];
+            strides.push(subset.iter().product());
+        }
+        strides.push(1);
+
+        return strides;
+    }
+
     pub fn get(&self, index: &[usize]) -> Result<&f32, TensorError> {
         if index.len() != self.shape.len() {
             return Err(TensorError::ShapeMismatch {
@@ -84,7 +144,7 @@ impl Tensor{
                 actual: self.shape.len()
             });
         }
-        let flat_index = self.offset(index)?;
+        let flat_index = self.get_flat_index(index)?;
         return Ok(&self.data[flat_index]);
     }
 
@@ -95,8 +155,8 @@ impl Tensor{
                 actual: self.shape.len()
             });
         }
-        let flat_index = self.offset(index)?;
-        return Ok(&mut self.data[flat_index]);
+        let flat_index = self.get_flat_index(index)?;
+        return Ok(&mut Arc::make_mut(&mut self.data)[flat_index]);
     }
 
     fn print_tensor(&self, f: &mut fmt::Formatter<'_>, index: &mut Vec<usize>, dimension : usize) -> fmt::Result{
@@ -112,27 +172,50 @@ impl Tensor{
             return Ok(());
         }
 
-        let flat_index = self.offset(&index).unwrap();
-        write!(f, "{}", self.data[0 + flat_index])?;
-        for index in 1..self.shape[dimension]  {
-            write!(f, ",{}", self.data[index + flat_index])?;
+        let flat_index = self.get_flat_index(&index).unwrap();
+        write!(f, "{}", self.data[flat_index])?;
+        for d in 1..self.shape[dimension]  {
+            index[dimension] = d;
+            let flat_index = self.get_flat_index(&index).unwrap();
+            write!(f, ",{}", self.data[flat_index])?;
         }
         writeln!(f, "]")?;
         return Ok(());
     }
 
-
-    fn mul_2d_flat(lhs_data: &[f32], row_lhs: usize, col_lhs: usize, rhs_data: &[f32], _row_rhs: usize, col_rhs: usize) -> Vec<f32> {
+    fn mul_2d_strided(
+        lhs: &Tensor,
+        lhs_batch_index: &[usize],
+        row_lhs: usize,
+        col_lhs: usize,
+        rhs: &Tensor,
+        rhs_batch_index: &[usize],
+        col_rhs: usize,
+    ) -> Vec<f32> {
         let mut result = vec![0.0; row_lhs * col_rhs];
+
         for row in 0..row_lhs {
             for col in 0..col_rhs {
                 let mut sum: f32 = 0.0;
+
                 for inner in 0..col_lhs {
-                    sum += lhs_data[row * col_lhs + inner] * rhs_data[inner * col_rhs + col];
+                    let mut lhs_index = lhs_batch_index.to_vec();
+                    lhs_index.push(row);
+                    lhs_index.push(inner);
+
+                    let mut rhs_index = rhs_batch_index.to_vec();
+                    rhs_index.push(inner);
+                    rhs_index.push(col);
+
+                    let lhs_flat = lhs.get_flat_index(&lhs_index).unwrap();
+                    let rhs_flat = rhs.get_flat_index(&rhs_index).unwrap();
+                    sum += lhs.data[lhs_flat] * rhs.data[rhs_flat];
                 }
+
                 result[row * col_rhs + col] = sum;
             }
         }
+
         return result;
     }
 
@@ -202,19 +285,156 @@ impl Tensor{
         return result;
     }
 
-    /// Converts a batch-only index into the flat offset where its matrix starts.
+    /// Transposes the tensor by reordering axes.
     ///
-    /// The full tensor strides are used here, but only the leading batch
-    /// dimensions are multiplied. The remaining matrix dimensions are handled
-    /// inside `mul_2d_flat`.
-    fn batch_offset(batch_index: &[usize], strides: &[usize]) -> usize {
-        let mut result = 0;
-
-        for i in 0..batch_index.len() {
-            result += batch_index[i] * strides[i];
+    /// Each value in `axis` describes which original axis should become the
+    /// axis at that position in the output. For example, `[1, 0, 2]` changes a
+    /// shape `[2, 3, 4]` into `[3, 2, 4]`.
+    ///
+    /// This is a view-style transpose: the shared data buffer is not reordered.
+    /// Only shape and stride metadata change, so indexing follows the new
+    /// logical shape while still reading from the same storage.
+    pub fn transpose(&mut self, axis : &[usize]) -> &Self{
+        if self.shape.len() < 2 {
+            panic!("Transposition requires tensors with at least 2 dimensions");
+        }
+        if self.shape.len() != axis.len() {
+            panic!("Dimension mismatch");
         }
 
-        return result;
+        let rank = self.shape.len();
+
+        // A valid axis mapping must be a permutation of every original axis.
+        // That means each axis appears exactly once and is within bounds.
+        let mut seen = vec![false; rank];
+        for &axis_index in axis {
+            if axis_index >= rank {
+                panic!("Axis out of bounds");
+            }
+            if seen[axis_index] {
+                panic!("Axis repeated");
+            }
+            seen[axis_index] = true;
+        }
+
+        let mut new_shape = Vec::with_capacity(rank);
+        let mut new_strides = Vec::with_capacity(rank);
+
+        // For a view transpose, each output axis uses the original dimension
+        // and stride from the axis it points to. The data Arc and offset stay
+        // unchanged.
+        for &axis_index in axis {
+            new_shape.push(self.shape[axis_index]);
+            new_strides.push(self.strides[axis_index]);
+        }
+
+        self.shape = new_shape;
+        self.strides = new_strides;
+
+        return self;
+    }
+
+    /// Transposition of last two dimensions
+    pub fn t(&mut self) -> &Self{
+        if self.shape.len() < 2 {
+            panic!("Matrix transposition requires tensors with at least 2 dimensions");
+        }
+        let rank = self.shape.len();
+        let mut axis: Vec<usize> = (0..rank).collect();
+        axis.swap(rank - 2, rank - 1);
+        return self.transpose(&axis);
+    }
+
+    fn map<F>(&self, f: F) -> Self
+    where
+        F: Fn(f32) -> f32,
+    {
+        let output_size: usize = self.shape.iter().product();
+        let mut result: Vec<f32> = Vec::with_capacity(output_size);
+
+        // Elementwise operations apply to the tensor's logical order, not raw
+        // storage order. After view operations such as transpose, the shared
+        // data buffer may no longer be contiguous for this shape, so each
+        // logical output index must be resolved through shape/stride/offset
+        // metadata before reading the input value. Creating the new tensor
+        // materializes the result as a contiguous tensor.
+        for i in 0..output_size {
+            let output_index = Tensor::unravel_index(i, &self.shape);
+            let flat_index = self.get_flat_index(&output_index).unwrap();
+            result.push(f(self.data[flat_index]));
+        }
+
+        return Tensor::new(self.shape.clone(), result).unwrap();
+    }
+
+    pub fn abs(&self) -> Self {
+        return self.map(|x| x.abs());
+    }
+
+    pub fn sqrt(&self) -> Self {
+        return self.map(|x| x.sqrt());
+    }
+
+    pub fn ln(&self) -> Self {
+        return self.map(|x| x.ln());
+    }
+
+    pub fn relu(&self) -> Self {
+        return self.map(|x| x.max(0.0));
+    }
+
+    pub fn neg(&self) -> Self {
+        return self.map(|x| -1.0 * x);
+    }
+
+    pub fn exp(&self) -> Self {
+        return self.map(|x| x.exp());
+    }
+
+    pub fn pow(&self, n: i32) -> Self {
+        return self.map(|x| x.powi(n));
+    }
+
+    pub fn powf(&self, n: f32) -> Self {
+        return self.map(|x| x.powf(n));
+    }
+
+    fn sum_float(&self) -> f32 {
+        let output_size: usize = self.shape.iter().product();
+        let mut sum  = 0.0;
+        for i in 0..output_size {
+            let output_index = Tensor::unravel_index(i, &self.shape);
+            let flat_index = self.get_flat_index(&output_index).unwrap();
+            sum += self.data[flat_index];
+        }
+        return sum;
+    }
+    pub fn mean(&self) -> Self {
+        let output_size: usize = self.shape.iter().product();
+        let sum  = Tensor::sum_float(&self);
+
+        return Tensor::new(vec![1], vec![sum / (output_size as f32)]).unwrap();
+    }
+    pub fn sum(&self) -> Self {
+        return Tensor::new(vec![1], vec![Tensor::sum_float(&self)]).unwrap();
+    }
+
+    fn multiply_elementwise(lhs: &Tensor, rhs: &Tensor) -> Tensor {
+        let output_shape = Tensor::get_broadcast_shape(&lhs.shape, &rhs.shape).unwrap();
+        let output_size: usize = output_shape.iter().product();
+        let mut result : Vec<f32> = Vec::with_capacity(output_size);
+
+        for i in 0 .. output_size {
+            let output_index = Tensor::unravel_index(i, &output_shape);
+            let lhs_index = Tensor::broadcast_index(&output_index, &lhs.shape);
+            let rhs_index = Tensor::broadcast_index(&output_index, &rhs.shape);
+            let lhs_flat = lhs.get_flat_index(&lhs_index).unwrap();
+            let rhs_flat = rhs.get_flat_index(&rhs_index).unwrap();
+
+            result.push(lhs.data[lhs_flat] * rhs.data[rhs_flat]);
+        }
+
+        return Tensor::new(output_shape, result).unwrap();
     }
 }
 
@@ -222,26 +442,37 @@ impl Tensor{
 impl Add<&Tensor> for &Tensor {
     type Output = Tensor;
     fn add(self, rhs: &Tensor) -> Tensor { // self is already of type &Tensor, becase we have for &Tensor
-        if self.shape != rhs.shape {
-            panic!("Shapes don't match");
-        }
-        let mut result : Vec<f32> = vec![0.0; self.data.len()];
+        let output_shape = Tensor::get_broadcast_shape(&self.shape, &rhs.shape).unwrap();
+        let output_size: usize = output_shape.iter().product();
+        let mut result : Vec<f32> = Vec::with_capacity(output_size);
 
-        for i in 0 .. self.data.len() {
-            result[i] = self.data[i] + rhs.data[i];
+        for i in 0 .. output_size {
+            let output_index = Tensor::unravel_index(i, &output_shape);
+            let lhs_index = Tensor::broadcast_index(&output_index, &self.shape);
+            let rhs_index = Tensor::broadcast_index(&output_index, &rhs.shape);
+            let lhs_flat = self.get_flat_index(&lhs_index).unwrap();
+            let rhs_flat = rhs.get_flat_index(&rhs_index).unwrap();
+
+            result.push(self.data[lhs_flat] + rhs.data[rhs_flat]);
         }
-        return Tensor::new(rhs.shape.clone(), result).unwrap();
+
+        return Tensor::new(output_shape, result).unwrap();
     }
 }
 
 impl Mul<&Tensor> for f32 {
     type Output = Tensor;
     fn mul(self, rhs: &Tensor) -> Tensor { // self is already of type &Tensor, becase we have for &Tensor
-        let mut result = Tensor::new(rhs.shape.clone(), rhs.data.clone()).unwrap();
-        for element in result.data.iter_mut() {
-            *element *= self;
+        let output_size: usize = rhs.shape.iter().product();
+        let mut result = Vec::with_capacity(output_size);
+
+        for i in 0 .. output_size {
+            let output_index = Tensor::unravel_index(i, &rhs.shape);
+            let rhs_flat = rhs.get_flat_index(&output_index).unwrap();
+            result.push(self * rhs.data[rhs_flat]);
         }
-        return result;
+
+        return Tensor::new(rhs.shape.clone(), result).unwrap();
     }
 }
 
@@ -254,12 +485,12 @@ impl Mul<&Tensor> for f32 {
 impl Mul<&Tensor> for &Tensor {
     type Output = Tensor;
     fn mul(self, rhs: &Tensor) -> Tensor {
-        // Matrix multiplication needs at least the final two dimensions:
-        // [...batch, rows, cols].
         if self.shape.len() < 2 || rhs.shape.len() < 2 {
-            panic!("Matrix multiplication requires tensors with at least 2 dimensions");
+            return Tensor::multiply_elementwise(self, rhs);
         }
 
+        // Matrix multiplication needs at least the final two dimensions:
+        // [...batch, rows, cols].
         let lhs_rank = self.shape.len();
         let rhs_rank = rhs.shape.len();
 
@@ -285,8 +516,6 @@ impl Mul<&Tensor> for &Tensor {
         // A 2D tensor has an empty batch shape; product([]) is 1, so this
         // same loop handles plain 2D, batched, and broadcasted multiplication.
         let batch_size: usize = output_batch_shape.iter().product();
-        let lhs_matrix_size = row_lhs * col_lhs;
-        let rhs_matrix_size = row_rhs * col_rhs;
 
         let mut result = Vec::with_capacity(batch_size * row_lhs * col_rhs);
         for batch in 0..batch_size {
@@ -297,20 +526,14 @@ impl Mul<&Tensor> for &Tensor {
             let lhs_batch_index = Tensor::broadcast_index(&output_batch_index, lhs_batch_shape);
             let rhs_batch_index = Tensor::broadcast_index(&output_batch_index, rhs_batch_shape);
 
-            // Once the source batch is known for each operand, the batch index
-            // is converted into the start offset of the contiguous matrix.
-            let lhs_start = Tensor::batch_offset(&lhs_batch_index, &self.strides);
-            let rhs_start = Tensor::batch_offset(&rhs_batch_index, &rhs.strides);
-            let lhs_end = lhs_start + lhs_matrix_size;
-            let rhs_end = rhs_start + rhs_matrix_size;
-
             // Append the matrix result for this output batch.
-            result.extend(Tensor::mul_2d_flat(
-                &self.data[lhs_start..lhs_end],
+            result.extend(Tensor::mul_2d_strided(
+                self,
+                &lhs_batch_index,
                 row_lhs,
                 col_lhs,
-                &rhs.data[rhs_start..rhs_end],
-                row_rhs,
+                rhs,
+                &rhs_batch_index,
                 col_rhs,
             ));
         }

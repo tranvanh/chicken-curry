@@ -5,6 +5,102 @@ fn tensor_2x2(data: Vec<f32>) -> Tensor {
     Tensor::new(vec![2, 2], data).expect("valid 2x2 tensor")
 }
 
+fn tensor_values(tensor: &Tensor, shape: &[usize]) -> Vec<f32> {
+    let size = shape.iter().product();
+    let mut values = Vec::with_capacity(size);
+
+    for flat_index in 0..size {
+        let mut remaining = flat_index;
+        let mut index = vec![0; shape.len()];
+
+        for i in (0..shape.len()).rev() {
+            index[i] = remaining % shape[i];
+            remaining /= shape[i];
+        }
+
+        values.push(*tensor.get(&index).unwrap());
+    }
+
+    return values;
+}
+
+fn assert_close(actual: f32, expected: f32) {
+    let tolerance = 0.00001;
+    assert!(
+        (actual - expected).abs() < tolerance,
+        "expected {expected}, got {actual}"
+    );
+}
+
+#[test]
+fn zeros_creates_tensor_filled_with_zeroes() {
+    let shape = vec![2, 3];
+    let tensor = Tensor::zeros(shape.clone()).unwrap();
+
+    assert_eq!(tensor_values(&tensor, &shape), vec![0.0; 6]);
+}
+
+#[test]
+fn ones_creates_tensor_filled_with_ones() {
+    let shape = vec![2, 3];
+    let tensor = Tensor::ones(shape.clone()).unwrap();
+
+    assert_eq!(tensor_values(&tensor, &shape), vec![1.0; 6]);
+}
+
+#[test]
+fn full_creates_tensor_filled_with_requested_value() {
+    let shape = vec![2, 3];
+    let tensor = Tensor::full(shape.clone(), -2.5).unwrap();
+
+    assert_eq!(tensor_values(&tensor, &shape), vec![-2.5; 6]);
+}
+
+#[test]
+fn rand_creates_tensor_with_values_in_zero_one_range() {
+    let shape = vec![2, 3];
+    let tensor = Tensor::rand(shape.clone()).unwrap();
+
+    for value in tensor_values(&tensor, &shape) {
+        assert!(value >= 0.0);
+        assert!(value < 1.0);
+    }
+}
+
+#[test]
+fn randn_creates_tensor_with_finite_values() {
+    let shape = vec![2, 3];
+    let tensor = Tensor::randn(shape.clone()).unwrap();
+
+    for value in tensor_values(&tensor, &shape) {
+        assert!(value.is_finite());
+    }
+}
+
+#[test]
+fn initializers_reject_empty_dimensions() {
+    assert!(matches!(
+        Tensor::zeros(vec![2, 0]),
+        Err(TensorError::EmptyDimension)
+    ));
+    assert!(matches!(
+        Tensor::ones(vec![2, 0]),
+        Err(TensorError::EmptyDimension)
+    ));
+    assert!(matches!(
+        Tensor::full(vec![2, 0], 3.5),
+        Err(TensorError::EmptyDimension)
+    ));
+    assert!(matches!(
+        Tensor::rand(vec![2, 0]),
+        Err(TensorError::EmptyDimension)
+    ));
+    assert!(matches!(
+        Tensor::randn(vec![2, 0]),
+        Err(TensorError::EmptyDimension)
+    ));
+}
+
 #[test]
 fn adds_two_tensors_elementwise() {
     let left = tensor_2x2(vec![1.0, -2.5, 3.25, 4.0]);
@@ -19,6 +115,62 @@ fn adds_two_tensors_elementwise() {
 }
 
 #[test]
+fn addition_operator_broadcasts_vector_across_matrix_rows() {
+    let left = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let right = Tensor::new(vec![3], vec![10.0, 20.0, 30.0]).unwrap();
+
+    let result = &left + &right;
+
+    assert_eq!(*result.get(&[0, 0]).unwrap(), 11.0);
+    assert_eq!(*result.get(&[0, 1]).unwrap(), 22.0);
+    assert_eq!(*result.get(&[0, 2]).unwrap(), 33.0);
+    assert_eq!(*result.get(&[1, 0]).unwrap(), 14.0);
+    assert_eq!(*result.get(&[1, 1]).unwrap(), 25.0);
+    assert_eq!(*result.get(&[1, 2]).unwrap(), 36.0);
+}
+
+#[test]
+fn addition_operator_broadcasts_multiple_dimensions() {
+    let left = Tensor::new(
+        vec![2, 1, 3],
+        vec![
+            1.0, 2.0, 3.0,
+            4.0, 5.0, 6.0,
+        ],
+    )
+    .unwrap();
+    let right = Tensor::new(
+        vec![1, 4, 3],
+        vec![
+            10.0, 20.0, 30.0,
+            40.0, 50.0, 60.0,
+            70.0, 80.0, 90.0,
+            100.0, 110.0, 120.0,
+        ],
+    )
+    .unwrap();
+
+    let result = &left + &right;
+
+    assert_eq!(*result.get(&[0, 0, 0]).unwrap(), 11.0);
+    assert_eq!(*result.get(&[0, 3, 2]).unwrap(), 123.0);
+    assert_eq!(*result.get(&[1, 0, 0]).unwrap(), 14.0);
+    assert_eq!(*result.get(&[1, 3, 2]).unwrap(), 126.0);
+}
+
+#[test]
+fn addition_operator_adds_rank_one_tensors() {
+    let left = Tensor::new(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+    let right = Tensor::new(vec![3], vec![10.0, 20.0, 30.0]).unwrap();
+
+    let result = &left + &right;
+
+    assert_eq!(*result.get(&[0]).unwrap(), 11.0);
+    assert_eq!(*result.get(&[1]).unwrap(), 22.0);
+    assert_eq!(*result.get(&[2]).unwrap(), 33.0);
+}
+
+#[test]
 fn multiplies_tensor_by_scalar() {
     let tensor = tensor_2x2(vec![1.5, -2.0, 0.0, 4.25]);
 
@@ -28,6 +180,242 @@ fn multiplies_tensor_by_scalar() {
     assert_eq!(*result.get(&[0, 1]).unwrap(), 4.0);
     assert_eq!(*result.get(&[1, 0]).unwrap(), -0.0);
     assert_eq!(*result.get(&[1, 1]).unwrap(), -8.5);
+}
+
+#[test]
+fn multiplication_operator_multiplies_rank_one_tensors_elementwise() {
+    let left = Tensor::new(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+    let right = Tensor::new(vec![3], vec![10.0, 20.0, 30.0]).unwrap();
+
+    let result = &left * &right;
+
+    assert_eq!(*result.get(&[0]).unwrap(), 10.0);
+    assert_eq!(*result.get(&[1]).unwrap(), 40.0);
+    assert_eq!(*result.get(&[2]).unwrap(), 90.0);
+}
+
+#[test]
+fn multiplication_operator_broadcasts_rank_one_tensor_elementwise() {
+    let left = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let right = Tensor::new(vec![3], vec![10.0, 20.0, 30.0]).unwrap();
+
+    let result = &left * &right;
+
+    assert_eq!(*result.get(&[0, 0]).unwrap(), 10.0);
+    assert_eq!(*result.get(&[0, 1]).unwrap(), 40.0);
+    assert_eq!(*result.get(&[0, 2]).unwrap(), 90.0);
+    assert_eq!(*result.get(&[1, 0]).unwrap(), 40.0);
+    assert_eq!(*result.get(&[1, 1]).unwrap(), 100.0);
+    assert_eq!(*result.get(&[1, 2]).unwrap(), 180.0);
+}
+
+#[test]
+fn unary_operations_apply_elementwise() {
+    let tensor = Tensor::new(vec![2, 2], vec![-4.0, -1.0, 0.0, 9.0]).unwrap();
+
+    let abs = tensor.abs();
+    let relu = tensor.relu();
+    let neg = tensor.neg();
+
+    assert_eq!(*abs.get(&[0, 0]).unwrap(), 4.0);
+    assert_eq!(*abs.get(&[0, 1]).unwrap(), 1.0);
+    assert_eq!(*abs.get(&[1, 0]).unwrap(), 0.0);
+    assert_eq!(*abs.get(&[1, 1]).unwrap(), 9.0);
+
+    assert_eq!(*relu.get(&[0, 0]).unwrap(), 0.0);
+    assert_eq!(*relu.get(&[0, 1]).unwrap(), 0.0);
+    assert_eq!(*relu.get(&[1, 0]).unwrap(), 0.0);
+    assert_eq!(*relu.get(&[1, 1]).unwrap(), 9.0);
+
+    assert_eq!(*neg.get(&[0, 0]).unwrap(), 4.0);
+    assert_eq!(*neg.get(&[0, 1]).unwrap(), 1.0);
+    assert_eq!(*neg.get(&[1, 0]).unwrap(), -0.0);
+    assert_eq!(*neg.get(&[1, 1]).unwrap(), -9.0);
+}
+
+#[test]
+fn unary_math_operations_apply_elementwise() {
+    let tensor = Tensor::new(vec![2, 2], vec![1.0, 4.0, 9.0, 16.0]).unwrap();
+
+    let sqrt = tensor.sqrt();
+    let ln = tensor.ln();
+    let exp = tensor.exp();
+    let pow = tensor.pow(2);
+    let powf = tensor.powf(0.5);
+
+    assert_eq!(*sqrt.get(&[0, 0]).unwrap(), 1.0);
+    assert_eq!(*sqrt.get(&[0, 1]).unwrap(), 2.0);
+    assert_eq!(*sqrt.get(&[1, 0]).unwrap(), 3.0);
+    assert_eq!(*sqrt.get(&[1, 1]).unwrap(), 4.0);
+
+    assert_close(*ln.get(&[0, 0]).unwrap(), 1.0_f32.ln());
+    assert_close(*ln.get(&[0, 1]).unwrap(), 4.0_f32.ln());
+    assert_close(*exp.get(&[0, 0]).unwrap(), 1.0_f32.exp());
+    assert_close(*exp.get(&[1, 1]).unwrap(), 16.0_f32.exp());
+
+    assert_eq!(*pow.get(&[0, 0]).unwrap(), 1.0);
+    assert_eq!(*pow.get(&[0, 1]).unwrap(), 16.0);
+    assert_eq!(*pow.get(&[1, 0]).unwrap(), 81.0);
+    assert_eq!(*pow.get(&[1, 1]).unwrap(), 256.0);
+
+    assert_eq!(*powf.get(&[0, 0]).unwrap(), 1.0);
+    assert_eq!(*powf.get(&[0, 1]).unwrap(), 2.0);
+    assert_eq!(*powf.get(&[1, 0]).unwrap(), 3.0);
+    assert_eq!(*powf.get(&[1, 1]).unwrap(), 4.0);
+}
+
+#[test]
+fn unary_operations_read_transposed_view_in_logical_order() {
+    let mut tensor = Tensor::new(
+        vec![2, 3],
+        vec![
+            1.0, 2.0, 3.0,
+            4.0, 5.0, 6.0,
+        ],
+    )
+    .unwrap();
+
+    tensor.t();
+    let result = tensor.neg();
+
+    assert_eq!(*result.get(&[0, 0]).unwrap(), -1.0);
+    assert_eq!(*result.get(&[0, 1]).unwrap(), -4.0);
+    assert_eq!(*result.get(&[1, 0]).unwrap(), -2.0);
+    assert_eq!(*result.get(&[1, 1]).unwrap(), -5.0);
+    assert_eq!(*result.get(&[2, 0]).unwrap(), -3.0);
+    assert_eq!(*result.get(&[2, 1]).unwrap(), -6.0);
+}
+
+#[test]
+fn t_transposes_2d_tensor() {
+    let mut tensor = Tensor::new(
+        vec![2, 3],
+        vec![
+            1.0, 2.0, 3.0,
+            4.0, 5.0, 6.0,
+        ],
+    )
+    .unwrap();
+
+    tensor.t();
+
+    assert_eq!(*tensor.get(&[0, 0]).unwrap(), 1.0);
+    assert_eq!(*tensor.get(&[0, 1]).unwrap(), 4.0);
+    assert_eq!(*tensor.get(&[1, 0]).unwrap(), 2.0);
+    assert_eq!(*tensor.get(&[1, 1]).unwrap(), 5.0);
+    assert_eq!(*tensor.get(&[2, 0]).unwrap(), 3.0);
+    assert_eq!(*tensor.get(&[2, 1]).unwrap(), 6.0);
+    assert!(tensor.get(&[0, 2]).is_err());
+}
+
+#[test]
+fn t_transposes_last_two_dimensions_for_batched_tensor() {
+    let mut tensor = Tensor::new(
+        vec![2, 2, 3],
+        vec![
+            1.0, 2.0, 3.0,
+            4.0, 5.0, 6.0,
+            7.0, 8.0, 9.0,
+            10.0, 11.0, 12.0,
+        ],
+    )
+    .unwrap();
+
+    tensor.t();
+
+    assert_eq!(*tensor.get(&[0, 0, 0]).unwrap(), 1.0);
+    assert_eq!(*tensor.get(&[0, 0, 1]).unwrap(), 4.0);
+    assert_eq!(*tensor.get(&[0, 1, 0]).unwrap(), 2.0);
+    assert_eq!(*tensor.get(&[0, 2, 1]).unwrap(), 6.0);
+    assert_eq!(*tensor.get(&[1, 0, 0]).unwrap(), 7.0);
+    assert_eq!(*tensor.get(&[1, 0, 1]).unwrap(), 10.0);
+    assert_eq!(*tensor.get(&[1, 2, 0]).unwrap(), 9.0);
+    assert_eq!(*tensor.get(&[1, 2, 1]).unwrap(), 12.0);
+    assert!(tensor.get(&[0, 0, 2]).is_err());
+}
+
+#[test]
+fn transpose_reorders_arbitrary_axes() {
+    let mut tensor = Tensor::new(
+        vec![2, 3, 4],
+        (1..=24).map(|value| value as f32).collect(),
+    )
+    .unwrap();
+
+    tensor.transpose(&[1, 0, 2]);
+
+    assert_eq!(*tensor.get(&[0, 0, 0]).unwrap(), 1.0);
+    assert_eq!(*tensor.get(&[0, 1, 0]).unwrap(), 13.0);
+    assert_eq!(*tensor.get(&[1, 0, 2]).unwrap(), 7.0);
+    assert_eq!(*tensor.get(&[2, 1, 3]).unwrap(), 24.0);
+    assert!(tensor.get(&[0, 2, 0]).is_err());
+}
+
+#[test]
+fn scalar_multiplication_reads_transposed_view_in_logical_order() {
+    let mut tensor = Tensor::new(
+        vec![2, 3],
+        vec![
+            1.0, 2.0, 3.0,
+            4.0, 5.0, 6.0,
+        ],
+    )
+    .unwrap();
+
+    tensor.t();
+    let result = 2.0 * &tensor;
+
+    assert_eq!(*result.get(&[0, 0]).unwrap(), 2.0);
+    assert_eq!(*result.get(&[0, 1]).unwrap(), 8.0);
+    assert_eq!(*result.get(&[1, 0]).unwrap(), 4.0);
+    assert_eq!(*result.get(&[1, 1]).unwrap(), 10.0);
+    assert_eq!(*result.get(&[2, 0]).unwrap(), 6.0);
+    assert_eq!(*result.get(&[2, 1]).unwrap(), 12.0);
+}
+
+#[test]
+fn multiplication_operator_reads_transposed_view_with_strides() {
+    let left = Tensor::new(
+        vec![2, 3],
+        vec![
+            1.0, 2.0, 3.0,
+            4.0, 5.0, 6.0,
+        ],
+    )
+    .unwrap();
+    let mut right = Tensor::new(
+        vec![2, 3],
+        vec![
+            7.0, 8.0, 9.0,
+            10.0, 11.0, 12.0,
+        ],
+    )
+    .unwrap();
+
+    right.t();
+    let result = &left * &right;
+
+    assert_eq!(*result.get(&[0, 0]).unwrap(), 50.0);
+    assert_eq!(*result.get(&[0, 1]).unwrap(), 68.0);
+    assert_eq!(*result.get(&[1, 0]).unwrap(), 122.0);
+    assert_eq!(*result.get(&[1, 1]).unwrap(), 167.0);
+}
+
+#[test]
+fn transpose_panics_for_invalid_axis_mapping() {
+    let mut repeated_axis = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
+    let repeated_axis_result = panic::catch_unwind(move || {
+        repeated_axis.transpose(&[0, 0]);
+    });
+
+    assert!(repeated_axis_result.is_err());
+
+    let mut out_of_bounds_axis = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
+    let out_of_bounds_axis_result = panic::catch_unwind(move || {
+        out_of_bounds_axis.transpose(&[0, 2]);
+    });
+
+    assert!(out_of_bounds_axis_result.is_err());
 }
 
 #[test]
@@ -151,9 +539,9 @@ fn multiplication_operator_multiplies_4d_batches_of_2d_tensors() {
 }
 
 #[test]
-fn multiplication_operator_panics_for_tensors_with_less_than_two_dimensions() {
+fn multiplication_operator_panics_for_incompatible_rank_one_tensors() {
     let left = Tensor::new(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
-    let right = Tensor::new(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+    let right = Tensor::new(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
 
     let result = panic::catch_unwind(|| {
         let _ = &left * &right;
