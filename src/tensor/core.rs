@@ -566,7 +566,7 @@ impl TensorCore {
             output_shape,
             result,
             operation,
-            vec![lhs.1.clone(), lhs.1.clone()],
+            vec![lhs.1.clone(), rhs.1.clone()],
         )
         .unwrap()
     }
@@ -693,7 +693,7 @@ impl TensorCore {
         shape.push(row_lhs);
         shape.push(col_rhs);
 
-        TensorCore::new(shape, result, TensorOperation::MatMul, vec![]).unwrap()
+        TensorCore::new(shape, result, TensorOperation::MatMul, vec![lhs.1.clone(), rhs.1.clone()]).unwrap()
     }
 
     // Formatting helpers
