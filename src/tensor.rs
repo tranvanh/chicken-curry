@@ -41,12 +41,7 @@ impl Tensor{
                 actual: data.len(),
             });
         }
-        let mut strides: Vec<usize> = Vec::with_capacity(shape.len());
-        for d in 0..shape.len()-1 {
-           let subset : &[usize] = &shape[d+1..];
-           strides.push(subset.iter().product());
-        }
-        strides.push(1);
+        let strides = Tensor::strides_for_shape(&shape);
 
         Ok(Self {
             shape,
@@ -76,6 +71,18 @@ impl Tensor{
             result += index[i]*self.strides[i];
         }
         return Ok(result);
+    }
+
+    fn strides_for_shape(shape: &[usize]) -> Vec<usize> {
+        let mut strides: Vec<usize> = Vec::with_capacity(shape.len());
+
+        for d in 0..shape.len() - 1 {
+            let subset : &[usize] = &shape[d + 1..];
+            strides.push(subset.iter().product());
+        }
+        strides.push(1);
+
+        return strides;
     }
 
     pub fn get(&self, index: &[usize]) -> Result<&f32, TensorError> {
@@ -217,19 +224,74 @@ impl Tensor{
         return result;
     }
 
-    /// Transposition according to new input axis mapping
+    /// Transposes the tensor by reordering axes.
+    ///
+    /// Each value in `axis` describes which original axis should become the
+    /// axis at that position in the output. For example, `[1, 0, 2]` changes a
+    /// shape `[2, 3, 4]` into `[3, 2, 4]`.
     pub fn transpose(&mut self, axis : &[usize]) -> &Self{
         if self.shape.len() < 2 {
-            panic!("Matrix multiplication requires tensors with at least 2 dimensions");
+            panic!("Transposition requires tensors with at least 2 dimensions");
         }
         if self.shape.len() != axis.len() {
             panic!("Dimension mismatch");
-        } 
-        
-        let original = self.shape.clone();
-        for i in 0..self.shape.len() {
-            self.shape[i] = self.shape[axis[i]];
         }
+
+        let rank = self.shape.len();
+
+        // A valid axis mapping must be a permutation of every original axis.
+        // That means each axis appears exactly once and is within bounds.
+        let mut seen = vec![false; rank];
+        for &axis_index in axis {
+            if axis_index >= rank {
+                panic!("Axis out of bounds");
+            }
+            if seen[axis_index] {
+                panic!("Axis repeated");
+            }
+            seen[axis_index] = true;
+        }
+
+        let old_shape = self.shape.clone();
+        let old_strides = self.strides.clone();
+        let old_data = self.data.clone();
+        let mut new_shape = Vec::with_capacity(rank);
+
+        for &axis_index in axis {
+            new_shape.push(old_shape[axis_index]);
+        }
+
+        // Transpose materializes a new row-major data buffer, so strides must
+        // be recalculated for the new shape.
+        let new_strides = Tensor::strides_for_shape(&new_shape);
+        let mut new_data = vec![0.0; old_data.len()];
+
+        for new_flat_index in 0..new_data.len() {
+            // Walk every output position, convert it to a multidimensional
+            // index, then map that output index back to the original tensor.
+            let new_index = Tensor::unravel_index(new_flat_index, &new_shape);
+            let mut old_index = vec![0; rank];
+
+            // axis[new_axis] tells which original axis is represented by this
+            // output axis, so the output coordinate is placed back there.
+            for new_axis in 0..rank {
+                old_index[axis[new_axis]] = new_index[new_axis];
+            }
+
+            // Convert the original multidimensional index into the old flat
+            // row-major offset so the matching value can be copied forward.
+            let mut old_flat_index = 0;
+            for i in 0..rank {
+                old_flat_index += old_index[i] * old_strides[i];
+            }
+
+            new_data[new_flat_index] = old_data[old_flat_index];
+        }
+
+        self.shape = new_shape;
+        self.strides = new_strides;
+        self.data = new_data;
+
         return self;
     }
 
@@ -239,10 +301,9 @@ impl Tensor{
             panic!("Matrix transposition requires tensors with at least 2 dimensions");
         }
         let rank = self.shape.len();
-        let last_two = (self.shape[rank-2],self.shape[rank-1]);
-        self.shape[rank-1] = last_two.0;
-        self.shape[rank-2] = last_two.1;
-        return self;
+        let mut axis: Vec<usize> = (0..rank).collect();
+        axis.swap(rank - 2, rank - 1);
+        return self.transpose(&axis);
     }
 }
 
