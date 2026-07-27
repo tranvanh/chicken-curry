@@ -1,5 +1,5 @@
 use std::fmt;
-use std::ops::{Add, Mul, Sub, Div};
+use std::ops::{Add, Div, Mul, Sub};
 
 use rand::random;
 use std::sync::Arc;
