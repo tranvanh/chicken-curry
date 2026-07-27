@@ -46,7 +46,9 @@ pub mod loss {
     }
 
     pub fn cross_entropy(pred: &Tensor, target: &Tensor, axis: usize) -> Tensor {
-        let pred_ln = pred.ln();
-        Tensor::multiply_elementwise(&pred_ln, target).sum_axis(axis, false).neg()
+        let pred_ln = pred.map(|x| x.max(1e-7).ln());
+        Tensor::multiply_elementwise(&pred_ln, target)
+            .sum_axis(axis, false)
+            .neg()
     }
 }
