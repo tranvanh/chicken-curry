@@ -66,6 +66,17 @@ fn full_creates_tensor_filled_with_requested_value() {
 }
 
 #[test]
+fn cloned_tensor_mutation_does_not_change_original() {
+    let tensor = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
+    let mut cloned = tensor.clone();
+
+    *cloned.get_mut(&[0, 1]).unwrap() = 20.0;
+
+    assert_eq!(*tensor.get(&[0, 1]).unwrap(), 2.0);
+    assert_eq!(*cloned.get(&[0, 1]).unwrap(), 20.0);
+}
+
+#[test]
 fn rand_creates_tensor_with_values_in_zero_one_range() {
     let shape = vec![2, 3];
     let tensor = Tensor::rand(shape.clone()).unwrap();
