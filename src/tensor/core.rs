@@ -771,32 +771,28 @@ impl TensorCore {
         }
     }
 
-    fn push_computation_graph(&self, output: &mut String, depth: usize, with_gap: bool) {
+    fn push_computation_graph(&self, output: &mut String, prefix: &str) {
         output.push_str(&self.creator.to_string());
         output.push('\n');
-        if with_gap &&  depth > 0 {
-            output.push_str(&" ".repeat(3 * (depth-1)));
-            output.push('|');
-        }
+
         for parent_index in 0..self.parents.len() {
-            output.push_str(&" ".repeat(3 * depth));
-            if parent_index + 1 == self.parents.len() {
-                output.push_str("└──");
-                self.parents[parent_index]
-                    .core()
-                    .push_computation_graph(output, depth + 1, false);
-            } else {
-                output.push_str("├──");
-                self.parents[parent_index]
-                    .core()
-                    .push_computation_graph(output, depth + 1, true);
-            }
+            let is_last = parent_index + 1 == self.parents.len();
+
+            output.push_str(prefix);
+            output.push_str(if is_last { "└──" } else { "├──" });
+
+            let mut child_prefix = prefix.to_string();
+            child_prefix.push_str(if is_last { "   " } else { "|  " });
+
+            self.parents[parent_index]
+                .core()
+                .push_computation_graph(output, &child_prefix);
         }
     }
 
     pub(super) fn computation_graph_string(&self) -> String {
         let mut output = String::new();
-        self.push_computation_graph(&mut output, 0, false);
+        self.push_computation_graph(&mut output, "");
         output
     }
 }
