@@ -77,6 +77,7 @@ impl Tensor{
         }
         return Ok(result);
     }
+
     pub fn get(&self, index: &[usize]) -> Result<&f32, TensorError> {
         if index.len() != self.shape.len() {
             return Err(TensorError::ShapeMismatch {
@@ -120,7 +121,6 @@ impl Tensor{
         writeln!(f, "]")?;
         return Ok(());
     }
-
 
     fn mul_2d_flat(lhs_data: &[f32], row_lhs: usize, col_lhs: usize, rhs_data: &[f32], _row_rhs: usize, col_rhs: usize) -> Vec<f32> {
         let mut result = vec![0.0; row_lhs * col_rhs];
@@ -215,6 +215,32 @@ impl Tensor{
         }
 
         return result;
+    }
+
+    pub fn transpose(&mut self, axis : &[usize]) -> &Self{
+        if self.shape.len() < 2 {
+            panic!("Matrix multiplication requires tensors with at least 2 dimensions");
+        }
+        if self.shape.len() != axis.len() {
+            panic!("Dimension mismatch");
+        } 
+        
+        let original = self.shape.clone();
+        for i in 0..self.shape.len() {
+            self.shape[i] = self.shape[axis[i]];
+        }
+        return self;
+    }
+
+    pub fn t(&mut self) -> &Self{
+        if self.shape.len() < 2 {
+            panic!("Matrix transposition requires tensors with at least 2 dimensions");
+        }
+        let rank = self.shape.len();
+        let last_two = (self.shape[rank-2],self.shape[rank-1]);
+        self.shape[rank-1] = last_two.0;
+        self.shape[rank-2] = last_two.1;
+        return self;
     }
 }
 
