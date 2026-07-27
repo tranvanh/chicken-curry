@@ -11,7 +11,7 @@ pub struct Tensor
 Internally, a tensor stores:
 
 - `shape: Vec<usize>` - dimensions of the tensor
-- `data: Arc<Vec<f32>>` - shared flat storage
+- `data: Rc<Vec<f32>>` - shared flat storage
 - `strides: Vec<usize>` - strides used to map multidimensional indices into
   the shared storage
 - `offset: usize` - starting position in the shared storage
@@ -100,7 +100,7 @@ Mutable access is available through:
 ```
 
 If a tensor shares its storage with another tensor, mutable access uses
-copy-on-write through `Arc::make_mut`.
+copy-on-write through `Rc::make_mut`.
 
 The tensor rank can be queried with:
 
@@ -169,7 +169,6 @@ Every element in the tensor is multiplied by the scalar.
 
 Unary tensor operations are implemented as `Tensor` methods:
 
-- `map`
 - `abs`
 - `sqrt`
 - `ln`
@@ -181,13 +180,13 @@ Unary tensor operations are implemented as `Tensor` methods:
 - `relu`
 - `tanh`
 
-The `map` method applies a function to every logical element and returns a new
-materialized tensor.
+Unary operations apply to every logical element and return a new materialized
+tensor.
 
-With the view-style storage model, `map` cannot simply walk the raw shared
-storage buffer. A tensor may be non-contiguous after operations such as
-transpose, so `map` iterates over the tensor's logical output indexes and uses
-shape, stride, and offset metadata to find each input value.
+With the view-style storage model, unary operations cannot simply walk the raw
+shared storage buffer. A tensor may be non-contiguous after operations such as
+transpose, so unary operations iterate over the tensor's logical output indexes
+and use shape, stride, and offset metadata to find each input value.
 
 For example:
 
@@ -202,8 +201,9 @@ strides: [1, 3]
 logical: [[1, 4], [2, 5], [3, 6]]
 ```
 
-Applying `map(|x| x * 10.0)` to the transposed view must produce logical
-values:
+Applying a unary operation to the transposed view must follow the logical values
+rather than the raw storage order. For example, scaling those values by `10.0`
+would produce:
 
 ```text
 [[10, 40], [20, 50], [30, 60]]
@@ -272,7 +272,7 @@ Examples:
 [4, 5, 2, 3] -> [4, 5, 3, 2]
 ```
 
-Transpose is view-style. It does not reorder the underlying `Arc<Vec<f32>>`.
+Transpose is view-style. It does not reorder the underlying `Rc<Vec<f32>>`.
 Instead, it reorders `shape` and `strides`.
 
 Example:

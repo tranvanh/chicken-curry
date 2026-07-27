@@ -97,7 +97,8 @@ The function computes:
 -sum(target * ln(pred_probs), axis)
 ```
 
-Probabilities are clamped to `1e-7` before `ln` to avoid `ln(0)`.
+Probabilities are used directly. A zero probability produces infinite loss
+because the implementation computes `ln(0)`.
 
 The selected axis is removed from the output shape:
 

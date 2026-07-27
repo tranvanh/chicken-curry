@@ -52,9 +52,9 @@ pub mod loss {
 
     /// Returns per-sample categorical cross entropy from probabilities.
     ///
-    /// `pred` is expected to contain probabilities, not logits. Values are
-    /// clamped to `1e-7` before `ln` to avoid `ln(0)`. The loss is summed along
-    /// `axis`, so that axis is removed from the output shape.
+    /// `pred` is expected to contain probabilities, not logits. Values are used
+    /// directly, so zero probabilities produce infinite loss. The loss is summed
+    /// along `axis`, so that axis is removed from the output shape.
     pub fn cross_entropy(pred: &Tensor, target: &Tensor, axis: usize) -> Tensor {
         Tensor::multiply_elementwise(&pred.ln(), target)
             .sum_axis(axis, false)
