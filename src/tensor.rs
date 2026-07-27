@@ -1,5 +1,5 @@
 use std::fmt;
-use std::ops::Mul;
+use std::ops::{Mul, Sub};
 use std::ops::Add;
 
 use std::sync::Arc;
@@ -345,7 +345,7 @@ impl Tensor{
         return self.transpose(&axis);
     }
 
-    fn map<F>(&self, f: F) -> Self
+    pub fn map<F>(&self, f: F) -> Self
     where
         F: Fn(f32) -> f32,
     {
@@ -367,6 +367,18 @@ impl Tensor{
         return Tensor::new(self.shape.clone(), result).unwrap();
     }
 
+    pub fn visit<F>(&self, mut visitor: F)
+    where
+        F: FnMut(f32),
+    {
+        let output_size: usize = self.shape.iter().product();
+        for i in 0..output_size {
+            let output_index = Tensor::unravel_index(i, &self.shape);
+            let flat_index = self.get_flat_index(&output_index).unwrap();
+            visitor(self.data[flat_index]);
+        }
+    }
+
     pub fn abs(&self) -> Self {
         return self.map(|x| x.abs());
     }
@@ -377,10 +389,6 @@ impl Tensor{
 
     pub fn ln(&self) -> Self {
         return self.map(|x| x.ln());
-    }
-
-    pub fn relu(&self) -> Self {
-        return self.map(|x| x.max(0.0));
     }
 
     pub fn neg(&self) -> Self {
@@ -400,13 +408,8 @@ impl Tensor{
     }
 
     fn sum_float(&self) -> f32 {
-        let output_size: usize = self.shape.iter().product();
         let mut sum  = 0.0;
-        for i in 0..output_size {
-            let output_index = Tensor::unravel_index(i, &self.shape);
-            let flat_index = self.get_flat_index(&output_index).unwrap();
-            sum += self.data[flat_index];
-        }
+        self.visit(|x| sum += x);
         return sum;
     }
     pub fn mean(&self) -> Self {
@@ -419,7 +422,10 @@ impl Tensor{
         return Tensor::new(vec![1], vec![Tensor::sum_float(&self)]).unwrap();
     }
 
-    fn multiply_elementwise(lhs: &Tensor, rhs: &Tensor) -> Tensor {
+    fn elementwise_binary<F>(lhs: &Tensor, rhs: &Tensor, f: F) -> Tensor
+    where
+        F: Fn(f32, f32) -> f32,
+    {
         let output_shape = Tensor::get_broadcast_shape(&lhs.shape, &rhs.shape).unwrap();
         let output_size: usize = output_shape.iter().product();
         let mut result : Vec<f32> = Vec::with_capacity(output_size);
@@ -431,10 +437,14 @@ impl Tensor{
             let lhs_flat = lhs.get_flat_index(&lhs_index).unwrap();
             let rhs_flat = rhs.get_flat_index(&rhs_index).unwrap();
 
-            result.push(lhs.data[lhs_flat] * rhs.data[rhs_flat]);
+            result.push(f(lhs.data[lhs_flat], rhs.data[rhs_flat]));
         }
 
         return Tensor::new(output_shape, result).unwrap();
+    }
+
+    fn multiply_elementwise(lhs: &Tensor, rhs: &Tensor) -> Tensor {
+        return Tensor::elementwise_binary(lhs, rhs, |left, right| left * right);
     }
 }
 
@@ -442,21 +452,14 @@ impl Tensor{
 impl Add<&Tensor> for &Tensor {
     type Output = Tensor;
     fn add(self, rhs: &Tensor) -> Tensor { // self is already of type &Tensor, becase we have for &Tensor
-        let output_shape = Tensor::get_broadcast_shape(&self.shape, &rhs.shape).unwrap();
-        let output_size: usize = output_shape.iter().product();
-        let mut result : Vec<f32> = Vec::with_capacity(output_size);
+        return Tensor::elementwise_binary(self, rhs, |left, right| left + right);
+    }
+}
 
-        for i in 0 .. output_size {
-            let output_index = Tensor::unravel_index(i, &output_shape);
-            let lhs_index = Tensor::broadcast_index(&output_index, &self.shape);
-            let rhs_index = Tensor::broadcast_index(&output_index, &rhs.shape);
-            let lhs_flat = self.get_flat_index(&lhs_index).unwrap();
-            let rhs_flat = rhs.get_flat_index(&rhs_index).unwrap();
-
-            result.push(self.data[lhs_flat] + rhs.data[rhs_flat]);
-        }
-
-        return Tensor::new(output_shape, result).unwrap();
+impl Sub<&Tensor> for &Tensor {
+    type Output = Tensor;
+    fn sub(self, rhs: &Tensor) -> Tensor { // self is already of type &Tensor, becase we have for &Tensor
+        return Tensor::elementwise_binary(self, rhs, |left, right| left - right);
     }
 }
 

@@ -148,7 +148,6 @@ Unary tensor operations are implemented as `Tensor` methods:
 - `abs`
 - `sqrt`
 - `ln`
-- `relu`
 - `neg`
 - `exp`
 - `pow`

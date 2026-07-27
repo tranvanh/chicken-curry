@@ -171,6 +171,34 @@ fn addition_operator_adds_rank_one_tensors() {
 }
 
 #[test]
+fn subtracts_two_tensors_elementwise() {
+    let left = tensor_2x2(vec![10.0, 20.0, 30.0, 40.0]);
+    let right = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
+
+    let result = &left - &right;
+
+    assert_eq!(*result.get(&[0, 0]).unwrap(), 9.0);
+    assert_eq!(*result.get(&[0, 1]).unwrap(), 18.0);
+    assert_eq!(*result.get(&[1, 0]).unwrap(), 27.0);
+    assert_eq!(*result.get(&[1, 1]).unwrap(), 36.0);
+}
+
+#[test]
+fn subtraction_operator_broadcasts_vector_across_matrix_rows() {
+    let left = Tensor::new(vec![2, 3], vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0]).unwrap();
+    let right = Tensor::new(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+
+    let result = &left - &right;
+
+    assert_eq!(*result.get(&[0, 0]).unwrap(), 9.0);
+    assert_eq!(*result.get(&[0, 1]).unwrap(), 18.0);
+    assert_eq!(*result.get(&[0, 2]).unwrap(), 27.0);
+    assert_eq!(*result.get(&[1, 0]).unwrap(), 39.0);
+    assert_eq!(*result.get(&[1, 1]).unwrap(), 48.0);
+    assert_eq!(*result.get(&[1, 2]).unwrap(), 57.0);
+}
+
+#[test]
 fn multiplies_tensor_by_scalar() {
     let tensor = tensor_2x2(vec![1.5, -2.0, 0.0, 4.25]);
 
@@ -210,22 +238,28 @@ fn multiplication_operator_broadcasts_rank_one_tensor_elementwise() {
 }
 
 #[test]
+fn unary_map_applies_function_elementwise() {
+    let tensor = Tensor::new(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+
+    let result = tensor.map(|x| x + 10.0);
+
+    assert_eq!(*result.get(&[0, 0]).unwrap(), 11.0);
+    assert_eq!(*result.get(&[0, 1]).unwrap(), 12.0);
+    assert_eq!(*result.get(&[1, 0]).unwrap(), 13.0);
+    assert_eq!(*result.get(&[1, 1]).unwrap(), 14.0);
+}
+
+#[test]
 fn unary_operations_apply_elementwise() {
     let tensor = Tensor::new(vec![2, 2], vec![-4.0, -1.0, 0.0, 9.0]).unwrap();
 
     let abs = tensor.abs();
-    let relu = tensor.relu();
     let neg = tensor.neg();
 
     assert_eq!(*abs.get(&[0, 0]).unwrap(), 4.0);
     assert_eq!(*abs.get(&[0, 1]).unwrap(), 1.0);
     assert_eq!(*abs.get(&[1, 0]).unwrap(), 0.0);
     assert_eq!(*abs.get(&[1, 1]).unwrap(), 9.0);
-
-    assert_eq!(*relu.get(&[0, 0]).unwrap(), 0.0);
-    assert_eq!(*relu.get(&[0, 1]).unwrap(), 0.0);
-    assert_eq!(*relu.get(&[1, 0]).unwrap(), 0.0);
-    assert_eq!(*relu.get(&[1, 1]).unwrap(), 9.0);
 
     assert_eq!(*neg.get(&[0, 0]).unwrap(), 4.0);
     assert_eq!(*neg.get(&[0, 1]).unwrap(), 1.0);
@@ -284,6 +318,28 @@ fn unary_operations_read_transposed_view_in_logical_order() {
     assert_eq!(*result.get(&[1, 1]).unwrap(), -5.0);
     assert_eq!(*result.get(&[2, 0]).unwrap(), -3.0);
     assert_eq!(*result.get(&[2, 1]).unwrap(), -6.0);
+}
+
+#[test]
+fn unary_map_reads_transposed_view_in_logical_order() {
+    let mut tensor = Tensor::new(
+        vec![2, 3],
+        vec![
+            1.0, 2.0, 3.0,
+            4.0, 5.0, 6.0,
+        ],
+    )
+    .unwrap();
+
+    tensor.t();
+    let result = tensor.map(|x| x * 10.0);
+
+    assert_eq!(*result.get(&[0, 0]).unwrap(), 10.0);
+    assert_eq!(*result.get(&[0, 1]).unwrap(), 40.0);
+    assert_eq!(*result.get(&[1, 0]).unwrap(), 20.0);
+    assert_eq!(*result.get(&[1, 1]).unwrap(), 50.0);
+    assert_eq!(*result.get(&[2, 0]).unwrap(), 30.0);
+    assert_eq!(*result.get(&[2, 1]).unwrap(), 60.0);
 }
 
 #[test]
