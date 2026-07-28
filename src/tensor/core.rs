@@ -262,6 +262,7 @@ impl TensorCore {
                 axis: axis.to_vec(),
             },
             parents: vec![tensor.clone()],
+            grad: self.grad.clone(),
         }
     }
 
