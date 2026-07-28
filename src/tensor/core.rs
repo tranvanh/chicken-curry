@@ -62,17 +62,32 @@ impl TensorCore {
 
     pub(super) fn zeros(shape: &Vec<usize>) -> Result<Self, TensorError> {
         let size = shape.iter().product();
-        TensorCore::new(shape.clone(), vec![0.0; size], TensorOperation::Constant, vec![])
+        TensorCore::new(
+            shape.clone(),
+            vec![0.0; size],
+            TensorOperation::Constant,
+            vec![],
+        )
     }
 
     pub(super) fn ones(shape: &Vec<usize>) -> Result<Self, TensorError> {
         let size = shape.iter().product();
-        TensorCore::new(shape.clone(), vec![1.0; size], TensorOperation::Constant, vec![])
+        TensorCore::new(
+            shape.clone(),
+            vec![1.0; size],
+            TensorOperation::Constant,
+            vec![],
+        )
     }
 
     pub(super) fn full(shape: &Vec<usize>, x: f32) -> Result<Self, TensorError> {
         let size = shape.iter().product();
-        TensorCore::new(shape.clone(), vec![x; size], TensorOperation::Constant, vec![])
+        TensorCore::new(
+            shape.clone(),
+            vec![x; size],
+            TensorOperation::Constant,
+            vec![],
+        )
     }
 
     pub(super) fn rand(shape: &Vec<usize>) -> Result<Self, TensorError> {
@@ -143,6 +158,27 @@ impl TensorCore {
     fn logical_flat_index(&self, logical_flat_index: usize) -> usize {
         let index = TensorCore::unravel_index(logical_flat_index, &self.shape);
         TensorCore::get_flat_index(&index, &self.shape, &self.strides, self.offset).unwrap()
+    }
+
+    fn value_at_index(&self, index: &[usize]) -> f32 {
+        let flat_index =
+            TensorCore::get_flat_index(index, &self.shape, &self.strides, self.offset).unwrap();
+        self.data[flat_index]
+    }
+
+    fn values(&self) -> Vec<f32> {
+        let size: usize = self.shape.iter().product();
+        (0..size)
+            .map(|index| self.data[self.logical_flat_index(index)])
+            .collect()
+    }
+
+    fn raw_tensor(shape: Vec<usize>, data: Vec<f32>) -> Tensor {
+        Tensor::initialize(TensorCore::new(shape, data, TensorOperation::Constant, vec![]).unwrap())
+    }
+
+    fn detached(tensor: &Tensor) -> Tensor {
+        TensorCore::raw_tensor(tensor.core.shape.clone(), tensor.core.values())
     }
 
     // Element access
@@ -397,6 +433,10 @@ impl TensorCore {
         self.map(|x| x.ln(), TensorOperation::Ln, tensor)
     }
 
+    pub(super) fn neg(&self, tensor: &Tensor) -> Self {
+        self.map(|x| -x, TensorOperation::Neg, tensor)
+    }
+
     pub(super) fn exp(&self, tensor: &Tensor) -> Self {
         self.map(|x| x.exp(), TensorOperation::Exp, tensor)
     }
@@ -599,6 +639,14 @@ impl TensorCore {
         TensorCore::elementwise_binary(lhs, rhs, |left, right| left + right, TensorOperation::Add)
     }
 
+    pub(super) fn sub(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor)) -> Self {
+        TensorCore::elementwise_binary(lhs, rhs, |left, right| left - right, TensorOperation::Sub)
+    }
+
+    pub(super) fn div(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor)) -> Self {
+        TensorCore::elementwise_binary(lhs, rhs, |left, right| left / right, TensorOperation::Div)
+    }
+
     pub(super) fn multiply_elementwise(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor)) -> Self {
         TensorCore::elementwise_binary(
             lhs,
@@ -718,68 +766,482 @@ impl TensorCore {
         .unwrap()
     }
 
-    fn traverse_topology_rev(tensor: &Tensor, order: &mut Vec<Tensor>, visited: &mut HashSet<*const TensorCore>) {
+    fn traverse_topology(
+        tensor: &Tensor,
+        order: &mut Vec<Tensor>,
+        visited: &mut HashSet<*const TensorCore>,
+    ) {
         visited.insert(Rc::as_ptr(&tensor.core));
-        order.push(tensor.clone());
-        for p in tensor.core.parents.iter() {
-            let pointer = Rc::as_ptr(&p.core);
-            if visited.contains(&pointer) {
-                continue;
+        for parent in tensor.core.parents.iter() {
+            let pointer = Rc::as_ptr(&parent.core);
+            if !visited.contains(&pointer) {
+                TensorCore::traverse_topology(parent, order, visited);
             }
-            TensorCore::traverse_topology_rev(p, order, visited);
         }
+        order.push(tensor.clone());
     }
 
-    pub(super) fn get_topology_rev(tensor: &Tensor) -> Vec<Tensor> {
-        let mut order : Vec<Tensor> = Vec::new();
-        let mut visited : HashSet<*const TensorCore> = HashSet::new();
-        TensorCore::traverse_topology_rev(tensor, &mut order, &mut visited);
+    pub(super) fn get_topology(tensor: &Tensor) -> Vec<Tensor> {
+        let mut order: Vec<Tensor> = Vec::new();
+        let mut visited: HashSet<*const TensorCore> = HashSet::new();
+        TensorCore::traverse_topology(tensor, &mut order, &mut visited);
+        order.reverse();
         order
     }
 
-    pub(super) fn grad(&self) -> Option<Tensor>{
+    pub(super) fn grad(&self) -> Option<Tensor> {
         self.grad.borrow().deref().clone()
     }
 
-    fn accumulate_grad(&self, contribution : &Tensor){
+    fn accumulate_grad(&self, contribution: &Tensor) {
         let mut grad = self.grad.borrow_mut();
-        if grad.is_none(){
-            *grad = Some(contribution.clone());
-        }
-        else{
+        if grad.is_none() {
+            *grad = Some(TensorCore::detached(contribution));
+        } else {
             let original = grad.as_ref().unwrap();
-            *grad = Some(original + &contribution);
+            if original.core.shape != contribution.core.shape {
+                panic!("Gradient shape mismatch");
+            }
+            let mut data = original.core.values();
+            for (value, addition) in data.iter_mut().zip(contribution.core.values().iter()) {
+                *value += addition;
+            }
+            *grad = Some(TensorCore::raw_tensor(original.core.shape.clone(), data));
+        }
+    }
+
+    fn reduce_broadcast_gradient(contribution: &Tensor, target_shape: &[usize]) -> Tensor {
+        let contribution_shape = &contribution.core.shape;
+        let target_size: usize = target_shape.iter().product();
+        let contribution_size: usize = contribution_shape.iter().product();
+        let mut result = vec![0.0; target_size];
+
+        for flat_index in 0..contribution_size {
+            let contribution_index = TensorCore::unravel_index(flat_index, contribution_shape);
+            let target_index = TensorCore::broadcast_index(&contribution_index, target_shape);
+            let target_flat = TensorCore::ravel_index(&target_index, target_shape);
+            let contribution_flat = contribution.core.logical_flat_index(flat_index);
+            result[target_flat] += contribution.core.data[contribution_flat];
+        }
+
+        TensorCore::raw_tensor(target_shape.to_vec(), result)
+    }
+
+    fn unary_gradient<F>(parent: &Tensor, upstream: &Tensor, derivative: F) -> Tensor
+    where
+        F: Fn(f32) -> f32,
+    {
+        let upstream_values = upstream.core.values();
+        let parent_values = parent.core.values();
+        let data = parent_values
+            .iter()
+            .zip(upstream_values.iter())
+            .map(|(parent_value, upstream_value)| upstream_value * derivative(*parent_value))
+            .collect();
+
+        TensorCore::raw_tensor(parent.core.shape.clone(), data)
+    }
+
+    fn unary_gradient_with_output<F>(
+        parent: &Tensor,
+        output: &Tensor,
+        upstream: &Tensor,
+        derivative: F,
+    ) -> Tensor
+    where
+        F: Fn(f32, f32) -> f32,
+    {
+        let upstream_values = upstream.core.values();
+        let parent_values = parent.core.values();
+        let output_values = output.core.values();
+        let data = parent_values
+            .iter()
+            .zip(output_values.iter())
+            .zip(upstream_values.iter())
+            .map(|((parent_value, output_value), upstream_value)| {
+                upstream_value * derivative(*parent_value, *output_value)
+            })
+            .collect();
+
+        TensorCore::raw_tensor(parent.core.shape.clone(), data)
+    }
+
+    fn elementwise_multiply_gradients(node: &Tensor, upstream: &Tensor) -> (Tensor, Tensor) {
+        let lhs = &node.core.parents[0];
+        let rhs = &node.core.parents[1];
+        let output_shape = &node.core.shape;
+        let output_size: usize = output_shape.iter().product();
+        let mut lhs_data = vec![0.0; lhs.core.shape.iter().product()];
+        let mut rhs_data = vec![0.0; rhs.core.shape.iter().product()];
+
+        for flat_index in 0..output_size {
+            let output_index = TensorCore::unravel_index(flat_index, output_shape);
+            let lhs_index = TensorCore::broadcast_index(&output_index, &lhs.core.shape);
+            let rhs_index = TensorCore::broadcast_index(&output_index, &rhs.core.shape);
+            let lhs_flat = TensorCore::ravel_index(&lhs_index, &lhs.core.shape);
+            let rhs_flat = TensorCore::ravel_index(&rhs_index, &rhs.core.shape);
+            let upstream_value = upstream.core.data[upstream.core.logical_flat_index(flat_index)];
+
+            lhs_data[lhs_flat] += upstream_value * rhs.core.value_at_index(&rhs_index);
+            rhs_data[rhs_flat] += upstream_value * lhs.core.value_at_index(&lhs_index);
+        }
+
+        (
+            TensorCore::raw_tensor(lhs.core.shape.clone(), lhs_data),
+            TensorCore::raw_tensor(rhs.core.shape.clone(), rhs_data),
+        )
+    }
+
+    fn elementwise_divide_gradients(node: &Tensor, upstream: &Tensor) -> (Tensor, Tensor) {
+        let lhs = &node.core.parents[0];
+        let rhs = &node.core.parents[1];
+        let output_shape = &node.core.shape;
+        let output_size: usize = output_shape.iter().product();
+        let mut lhs_data = vec![0.0; lhs.core.shape.iter().product()];
+        let mut rhs_data = vec![0.0; rhs.core.shape.iter().product()];
+
+        for flat_index in 0..output_size {
+            let output_index = TensorCore::unravel_index(flat_index, output_shape);
+            let lhs_index = TensorCore::broadcast_index(&output_index, &lhs.core.shape);
+            let rhs_index = TensorCore::broadcast_index(&output_index, &rhs.core.shape);
+            let lhs_flat = TensorCore::ravel_index(&lhs_index, &lhs.core.shape);
+            let rhs_flat = TensorCore::ravel_index(&rhs_index, &rhs.core.shape);
+            let upstream_value = upstream.core.data[upstream.core.logical_flat_index(flat_index)];
+            let lhs_value = lhs.core.value_at_index(&lhs_index);
+            let rhs_value = rhs.core.value_at_index(&rhs_index);
+
+            lhs_data[lhs_flat] += upstream_value / rhs_value;
+            rhs_data[rhs_flat] -= upstream_value * lhs_value / rhs_value.powi(2);
+        }
+
+        (
+            TensorCore::raw_tensor(lhs.core.shape.clone(), lhs_data),
+            TensorCore::raw_tensor(rhs.core.shape.clone(), rhs_data),
+        )
+    }
+
+    fn matmul_gradients(node: &Tensor, upstream: &Tensor) -> (Tensor, Tensor) {
+        let lhs = TensorCore::detached(&node.core.parents[0]);
+        let rhs = TensorCore::detached(&node.core.parents[1]);
+        let upstream = TensorCore::detached(upstream);
+        let lhs_grad = &upstream * &rhs.t();
+        let rhs_grad = &lhs.t() * &upstream;
+
+        (
+            TensorCore::reduce_broadcast_gradient(&lhs_grad, &node.core.parents[0].core.shape),
+            TensorCore::reduce_broadcast_gradient(&rhs_grad, &node.core.parents[1].core.shape),
+        )
+    }
+
+    fn reduced_output_index(input_index: &[usize], axis: usize, keep_shape: bool) -> Vec<usize> {
+        if keep_shape {
+            let mut index = input_index.to_vec();
+            index[axis] = 0;
+            return index;
+        }
+
+        let mut index: Vec<usize> = input_index
+            .iter()
+            .enumerate()
+            .filter_map(|(i, value)| if i == axis { None } else { Some(*value) })
+            .collect();
+        if index.len() == 0 {
+            index.push(0);
+        }
+        index
+    }
+
+    fn sum_gradient(
+        parent: &Tensor,
+        upstream: &Tensor,
+        axis: &Option<usize>,
+        keep_shape: &Option<bool>,
+    ) -> Tensor {
+        match axis {
+            None => {
+                let upstream_value = upstream.core.value_at_index(&[0]);
+                TensorCore::raw_tensor(
+                    parent.core.shape.clone(),
+                    vec![upstream_value; parent.core.shape.iter().product()],
+                )
+            }
+            Some(axis) => {
+                let keep_shape = keep_shape.unwrap();
+                let input_size: usize = parent.core.shape.iter().product();
+                let mut data = Vec::with_capacity(input_size);
+
+                for flat_index in 0..input_size {
+                    let input_index = TensorCore::unravel_index(flat_index, &parent.core.shape);
+                    let upstream_index =
+                        TensorCore::reduced_output_index(&input_index, *axis, keep_shape);
+                    data.push(upstream.core.value_at_index(&upstream_index));
+                }
+
+                TensorCore::raw_tensor(parent.core.shape.clone(), data)
+            }
+        }
+    }
+
+    fn max_gradient(
+        parent: &Tensor,
+        output: &Tensor,
+        upstream: &Tensor,
+        axis: &Option<usize>,
+        keep_shape: &Option<bool>,
+    ) -> Tensor {
+        match axis {
+            None => {
+                let max = output.core.value_at_index(&[0]);
+                let parent_values = parent.core.values();
+                let count = parent_values.iter().filter(|value| **value == max).count() as f32;
+                let upstream_value = upstream.core.value_at_index(&[0]);
+                let data = parent_values
+                    .iter()
+                    .map(|value| {
+                        if *value == max {
+                            upstream_value / count
+                        } else {
+                            0.0
+                        }
+                    })
+                    .collect();
+                TensorCore::raw_tensor(parent.core.shape.clone(), data)
+            }
+            Some(axis) => {
+                let keep_shape = keep_shape.unwrap();
+                let input_size: usize = parent.core.shape.iter().product();
+                let output_size: usize = output.core.shape.iter().product();
+                let output_values = output.core.values();
+                let mut max_counts = vec![0.0; output_size];
+                let mut output_indices = Vec::with_capacity(input_size);
+
+                for flat_index in 0..input_size {
+                    let input_index = TensorCore::unravel_index(flat_index, &parent.core.shape);
+                    let output_index =
+                        TensorCore::reduced_output_index(&input_index, *axis, keep_shape);
+                    let output_flat = TensorCore::ravel_index(&output_index, &output.core.shape);
+                    if parent.core.value_at_index(&input_index) == output_values[output_flat] {
+                        max_counts[output_flat] += 1.0;
+                    }
+                    output_indices.push(output_index);
+                }
+
+                let data = output_indices
+                    .iter()
+                    .enumerate()
+                    .map(|(flat_index, output_index)| {
+                        let input_index = TensorCore::unravel_index(flat_index, &parent.core.shape);
+                        let output_flat = TensorCore::ravel_index(output_index, &output.core.shape);
+                        if parent.core.value_at_index(&input_index) == output_values[output_flat] {
+                            upstream.core.value_at_index(output_index) / max_counts[output_flat]
+                        } else {
+                            0.0
+                        }
+                    })
+                    .collect();
+
+                TensorCore::raw_tensor(parent.core.shape.clone(), data)
+            }
         }
     }
 
     pub(super) fn backward(tensor: &Tensor) {
-        let core = tensor.core();
-        let topology = Self::get_topology_rev(tensor);
-        // !Important: The grad has independent history graph, be careful to not attach it to the main graph 
-        let ones = Tensor::initialize(TensorCore::ones(&core.shape).unwrap());
-        core.accumulate_grad(&ones);
+        let topology = Self::get_topology(tensor);
+        let ones = TensorCore::raw_tensor(
+            tensor.core.shape.clone(),
+            vec![1.0; tensor.core.shape.iter().product()],
+        );
+        tensor.core.accumulate_grad(&ones);
 
         for node in &topology {
-            let upstream = core.grad();
+            let upstream = match node.core.grad() {
+                Some(grad) => grad,
+                None => continue,
+            };
 
-            // Derivative rules
-            match &core.creator {
+            match &node.core.creator {
                 TensorOperation::Add => {
-                    node.core.parents[0].core.accumulate_grad(upstream.as_ref().unwrap());
-                    node.core.parents[1].core.accumulate_grad(upstream.as_ref().unwrap());
+                    let lhs = &node.core.parents[0];
+                    let rhs = &node.core.parents[1];
+                    lhs.core
+                        .accumulate_grad(&TensorCore::reduce_broadcast_gradient(
+                            &upstream,
+                            &lhs.core.shape,
+                        ));
+                    rhs.core
+                        .accumulate_grad(&TensorCore::reduce_broadcast_gradient(
+                            &upstream,
+                            &rhs.core.shape,
+                        ));
                 }
-                TensorOperation::ScalMul{scalar} => {
-                    let contribution = upstream.unwrap().clone();
-                    node.core.parents[0].core.accumulate_grad(&(*scalar * &contribution));
+                TensorOperation::Sub => {
+                    let lhs = &node.core.parents[0];
+                    let rhs = &node.core.parents[1];
+                    lhs.core
+                        .accumulate_grad(&TensorCore::reduce_broadcast_gradient(
+                            &upstream,
+                            &lhs.core.shape,
+                        ));
+                    let rhs_contribution =
+                        TensorCore::reduce_broadcast_gradient(&upstream, &rhs.core.shape);
+                    let data = rhs_contribution
+                        .core
+                        .values()
+                        .iter()
+                        .map(|value| -*value)
+                        .collect();
+                    rhs.core
+                        .accumulate_grad(&TensorCore::raw_tensor(rhs.core.shape.clone(), data));
                 }
-
-                default=> {
-
+                TensorOperation::Div => {
+                    let (lhs_grad, rhs_grad) =
+                        TensorCore::elementwise_divide_gradients(node, &upstream);
+                    node.core.parents[0].core.accumulate_grad(&lhs_grad);
+                    node.core.parents[1].core.accumulate_grad(&rhs_grad);
                 }
+                TensorOperation::ScalMul { scalar } => {
+                    let parent = &node.core.parents[0];
+                    let data = upstream
+                        .core
+                        .values()
+                        .iter()
+                        .map(|value| value * scalar)
+                        .collect();
+                    parent
+                        .core
+                        .accumulate_grad(&TensorCore::raw_tensor(parent.core.shape.clone(), data));
+                }
+                TensorOperation::ElemMul => {
+                    let (lhs_grad, rhs_grad) =
+                        TensorCore::elementwise_multiply_gradients(node, &upstream);
+                    node.core.parents[0].core.accumulate_grad(&lhs_grad);
+                    node.core.parents[1].core.accumulate_grad(&rhs_grad);
+                }
+                TensorOperation::MatMul => {
+                    let (lhs_grad, rhs_grad) = TensorCore::matmul_gradients(node, &upstream);
+                    node.core.parents[0].core.accumulate_grad(&lhs_grad);
+                    node.core.parents[1].core.accumulate_grad(&rhs_grad);
+                }
+                TensorOperation::Transpose { axis } => {
+                    let mut inverse_axis = vec![0; axis.len()];
+                    for (new_axis, old_axis) in axis.iter().enumerate() {
+                        inverse_axis[*old_axis] = new_axis;
+                    }
+                    let contribution = TensorCore::detached(&upstream.transpose(&inverse_axis));
+                    node.core.parents[0].core.accumulate_grad(&contribution);
+                }
+                TensorOperation::Abs => {
+                    let parent = &node.core.parents[0];
+                    parent.core.accumulate_grad(&TensorCore::unary_gradient(
+                        parent,
+                        &upstream,
+                        |value| {
+                            if value > 0.0 {
+                                1.0
+                            } else if value < 0.0 {
+                                -1.0
+                            } else {
+                                0.0
+                            }
+                        },
+                    ));
+                }
+                TensorOperation::Ln => {
+                    let parent = &node.core.parents[0];
+                    parent.core.accumulate_grad(&TensorCore::unary_gradient(
+                        parent,
+                        &upstream,
+                        |value| 1.0 / value,
+                    ));
+                }
+                TensorOperation::Sqrt => {
+                    let parent = &node.core.parents[0];
+                    parent.core.accumulate_grad(&TensorCore::unary_gradient(
+                        parent,
+                        &upstream,
+                        |value| 0.5 / value.sqrt(),
+                    ));
+                }
+                TensorOperation::Neg => {
+                    let parent = &node.core.parents[0];
+                    parent.core.accumulate_grad(&TensorCore::unary_gradient(
+                        parent,
+                        &upstream,
+                        |_value| -1.0,
+                    ));
+                }
+                TensorOperation::Exp => {
+                    let parent = &node.core.parents[0];
+                    parent
+                        .core
+                        .accumulate_grad(&TensorCore::unary_gradient_with_output(
+                            parent,
+                            node,
+                            &upstream,
+                            |_value, output| output,
+                        ));
+                }
+                TensorOperation::Pow { exponent } => {
+                    let parent = &node.core.parents[0];
+                    parent.core.accumulate_grad(&TensorCore::unary_gradient(
+                        parent,
+                        &upstream,
+                        |value| *exponent as f32 * value.powi(exponent - 1),
+                    ));
+                }
+                TensorOperation::PowF { exponent } => {
+                    let parent = &node.core.parents[0];
+                    parent.core.accumulate_grad(&TensorCore::unary_gradient(
+                        parent,
+                        &upstream,
+                        |value| *exponent * value.powf(exponent - 1.0),
+                    ));
+                }
+                TensorOperation::Sum { axis, keep_shape } => {
+                    let parent = &node.core.parents[0];
+                    parent.core.accumulate_grad(&TensorCore::sum_gradient(
+                        parent, &upstream, axis, keep_shape,
+                    ));
+                }
+                TensorOperation::Max { axis, keep_shape } => {
+                    let parent = &node.core.parents[0];
+                    parent.core.accumulate_grad(&TensorCore::max_gradient(
+                        parent, node, &upstream, axis, keep_shape,
+                    ));
+                }
+                TensorOperation::Sigmoid => {
+                    let parent = &node.core.parents[0];
+                    parent
+                        .core
+                        .accumulate_grad(&TensorCore::unary_gradient_with_output(
+                            parent,
+                            node,
+                            &upstream,
+                            |_value, output| output * (1.0 - output),
+                        ));
+                }
+                TensorOperation::Relu => {
+                    let parent = &node.core.parents[0];
+                    parent.core.accumulate_grad(&TensorCore::unary_gradient(
+                        parent,
+                        &upstream,
+                        |value| if value > 0.0 { 1.0 } else { 0.0 },
+                    ));
+                }
+                TensorOperation::Tanh => {
+                    let parent = &node.core.parents[0];
+                    parent
+                        .core
+                        .accumulate_grad(&TensorCore::unary_gradient_with_output(
+                            parent,
+                            node,
+                            &upstream,
+                            |_value, output| 1.0 - output.powi(2),
+                        ));
+                }
+                TensorOperation::Constant => {}
             }
         }
-
-
     }
 
     // Formatting helpers

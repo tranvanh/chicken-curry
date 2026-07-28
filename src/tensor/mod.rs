@@ -155,7 +155,7 @@ impl Tensor {
 
     /// Negates every element.
     pub fn neg(&self) -> Self {
-        -1.0 * self
+        Tensor::initialize(self.core.neg(&self))
     }
 
     /// Applies exponential function elementwise.
@@ -242,12 +242,16 @@ impl Tensor {
         Tensor::initialize(TensorCore::mulmat((lhs.core(), lhs), (rhs.core(), rhs)))
     }
 
-    pub fn get_topology_rev(&self) -> Vec<Tensor>{
-        TensorCore::get_topology_rev(&self)
+    pub fn get_topology(&self) -> Vec<Tensor> {
+        TensorCore::get_topology(&self)
     }
 
     pub fn grad(&self) -> Option<Self> {
         self.core.grad()
+    }
+
+    pub fn backward(&self) {
+        TensorCore::backward(&self)
     }
 
     pub fn computation_graph_string(&self) -> String {
@@ -270,14 +274,14 @@ impl Add<&Tensor> for &Tensor {
 impl Sub<&Tensor> for &Tensor {
     type Output = Tensor;
     fn sub(self, rhs: &Tensor) -> Tensor {
-        self - &rhs.neg()
+        Tensor::initialize(TensorCore::sub((self.core(), self), (rhs.core(), rhs)))
     }
 }
 
 impl Div<&Tensor> for &Tensor {
     type Output = Tensor;
     fn div(self, rhs: &Tensor) -> Tensor {
-        Tensor::multiply_elementwise(self, &rhs.pow(-1))
+        Tensor::initialize(TensorCore::div((self.core(), self), (rhs.core(), rhs)))
     }
 }
 

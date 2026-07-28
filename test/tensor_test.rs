@@ -41,6 +41,11 @@ fn assert_values_close(actual: Vec<f32>, expected: Vec<f32>) {
     }
 }
 
+fn assert_grad_values_close(tensor: &Tensor, shape: &[usize], expected: Vec<f32>) {
+    let grad = tensor.grad().expect("tensor should have a gradient");
+    assert_values_close(tensor_values(&grad, shape), expected);
+}
+
 #[test]
 fn zeros_creates_tensor_filled_with_zeroes() {
     let shape = vec![2, 3];
@@ -222,7 +227,7 @@ fn get_topology_returns_root_before_parent_dependencies() {
 }
 
 #[test]
-fn get_topology_traverses_left_branch_before_right_branch() {
+fn get_topology_places_consumers_before_dependencies() {
     let left = Tensor::new(vec![2], vec![1.0, 4.0]).unwrap();
     let right = Tensor::new(vec![2], vec![10.0, 20.0]).unwrap();
     let scaled_left = 2.0 * &left;
@@ -232,9 +237,9 @@ fn get_topology_traverses_left_branch_before_right_branch() {
 
     assert_eq!(topology.len(), 4);
     assert_eq!(tensor_values(&topology[0], &[2]), vec![12.0, 28.0]);
-    assert_eq!(tensor_values(&topology[1], &[2]), vec![2.0, 8.0]);
-    assert_eq!(tensor_values(&topology[2], &[2]), vec![1.0, 4.0]);
-    assert_eq!(tensor_values(&topology[3], &[2]), vec![10.0, 20.0]);
+    assert_eq!(tensor_values(&topology[1], &[2]), vec![10.0, 20.0]);
+    assert_eq!(tensor_values(&topology[2], &[2]), vec![2.0, 8.0]);
+    assert_eq!(tensor_values(&topology[3], &[2]), vec![1.0, 4.0]);
 }
 
 #[test]
@@ -249,6 +254,75 @@ fn get_topology_visits_shared_dependencies_once() {
     assert_eq!(tensor_values(&topology[0], &[2]), vec![4.0, 8.0]);
     assert_eq!(tensor_values(&topology[1], &[2]), vec![2.0, 4.0]);
     assert_eq!(tensor_values(&topology[2], &[2]), vec![1.0, 2.0]);
+}
+
+#[test]
+fn backward_propagates_through_scalar_multiply_and_sum() {
+    let tensor = Tensor::new(vec![2], vec![3.0, 4.0]).unwrap();
+    let result = (2.0 * &tensor).sum();
+
+    result.backward();
+
+    assert_grad_values_close(&tensor, &[2], vec![2.0, 2.0]);
+    assert_grad_values_close(&result, &[1], vec![1.0]);
+}
+
+#[test]
+fn backward_propagates_through_unary_operations() {
+    let tensor = Tensor::new(vec![2], vec![4.0, 9.0]).unwrap();
+    let result = tensor.sqrt().sum();
+
+    result.backward();
+
+    assert_values_close(
+        tensor_values(&tensor.grad().unwrap(), &[2]),
+        vec![0.25, 1.0 / 6.0],
+    );
+}
+
+#[test]
+fn backward_unbroadcasts_elementwise_multiply_gradients() {
+    let left = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let right = Tensor::new(vec![3], vec![10.0, 20.0, 30.0]).unwrap();
+    let result = Tensor::multiply_elementwise(&left, &right).sum();
+
+    result.backward();
+
+    assert_grad_values_close(&left, &[2, 3], vec![10.0, 20.0, 30.0, 10.0, 20.0, 30.0]);
+    assert_grad_values_close(&right, &[3], vec![5.0, 7.0, 9.0]);
+}
+
+#[test]
+fn backward_accumulates_all_shared_dependency_contributions_before_processing_parent() {
+    let tensor = Tensor::new(vec![2], vec![1.0, 2.0]).unwrap();
+    let doubled = 2.0 * &tensor;
+    let result = (&doubled + &doubled).sum();
+
+    result.backward();
+
+    assert_grad_values_close(&tensor, &[2], vec![4.0, 4.0]);
+}
+
+#[test]
+fn backward_propagates_through_axis_sum() {
+    let tensor = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let result = tensor.sum_axis(1, false).sum();
+
+    result.backward();
+
+    assert_grad_values_close(&tensor, &[2, 3], vec![1.0; 6]);
+}
+
+#[test]
+fn backward_propagates_through_matrix_multiplication() {
+    let left = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let right = Tensor::new(vec![3, 2], vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0]).unwrap();
+    let result = (&left * &right).sum();
+
+    result.backward();
+
+    assert_grad_values_close(&left, &[2, 3], vec![15.0, 19.0, 23.0, 15.0, 19.0, 23.0]);
+    assert_grad_values_close(&right, &[3, 2], vec![5.0, 5.0, 7.0, 7.0, 9.0, 9.0]);
 }
 
 #[test]

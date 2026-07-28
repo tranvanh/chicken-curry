@@ -5,6 +5,8 @@ use std::fmt;
 pub(super) enum TensorOperation {
     Constant,
     Add,
+    Sub,
+    Div,
     ScalMul {
         scalar: f32,
     },
@@ -16,6 +18,7 @@ pub(super) enum TensorOperation {
     Abs,
     Ln,
     Sqrt,
+    Neg,
     Exp,
     Pow {
         exponent: i32,
@@ -41,6 +44,8 @@ impl fmt::Display for TensorOperation {
         match self {
             TensorOperation::Constant => write!(f, "Constant"),
             TensorOperation::Add => write!(f, "Add"),
+            TensorOperation::Sub => write!(f, "Sub"),
+            TensorOperation::Div => write!(f, "Div"),
             TensorOperation::ScalMul { scalar } => write!(f, "ScalMul(scalar={scalar})"),
             TensorOperation::ElemMul => write!(f, "ElemMul"),
             TensorOperation::MatMul => write!(f, "MatMul"),
@@ -48,6 +53,7 @@ impl fmt::Display for TensorOperation {
             TensorOperation::Abs => write!(f, "Abs"),
             TensorOperation::Ln => write!(f, "Ln"),
             TensorOperation::Sqrt => write!(f, "Sqrt"),
+            TensorOperation::Neg => write!(f, "Neg"),
             TensorOperation::Exp => write!(f, "Exp"),
             TensorOperation::Pow { exponent } => write!(f, "Pow(exponent={exponent})"),
             TensorOperation::PowF { exponent } => write!(f, "PowF(exponent={exponent})"),
