@@ -51,8 +51,9 @@ shape [2, 3], axis 1 -> shape [2, 3]
 stability.
 
 Because `softmax` is composed from tensor operations, its computation graph is
-recorded as `Max`, `Sub`, `Exp`, `Sum`, and `Div` nodes rather than a single
-`Softmax` node.
+recorded as lower-level tensor operations rather than a single `Softmax` node.
+With the current composed operators, subtraction appears as `Add` plus
+`ScalMul(scalar=-1)`, and division appears as `ElemMul` plus `Pow(exponent=-1)`.
 
 Errors:
 
@@ -81,8 +82,9 @@ mean((pred - target)^2)
 
 `pred` and `target` must have compatible shapes for subtraction.
 
-The graph for `mse` is recorded as subtraction, power, sum, and scalar
-multiplication operations.
+The graph for `mse` is recorded as composed subtraction, power, sum, and scalar
+multiplication operations. Subtraction appears as `Add` plus scalar
+multiplication by `-1`.
 
 ## Cross Entropy
 
@@ -114,4 +116,4 @@ pred shape [batch, classes], axis 1 -> loss shape [batch]
 ```
 
 The graph for `cross_entropy` is recorded as natural log, elementwise
-multiplication, axis sum, and negation operations.
+multiplication, axis sum, and scalar multiplication by `-1`.

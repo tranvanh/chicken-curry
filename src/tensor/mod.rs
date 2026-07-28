@@ -43,19 +43,19 @@ impl Tensor {
 
     /// Creates a tensor filled with `0.0`.
     pub fn zeros(shape: Vec<usize>) -> Result<Self, TensorError> {
-        let core = TensorCore::zeros(shape)?;
+        let core = TensorCore::zeros(&shape)?;
         Ok(Tensor::initialize(core))
     }
 
     /// Creates a tensor filled with `1.0`.
     pub fn ones(shape: Vec<usize>) -> Result<Self, TensorError> {
-        let core = TensorCore::ones(shape)?;
+        let core = TensorCore::ones(&shape)?;
         Ok(Tensor::initialize(core))
     }
 
     /// Creates a tensor where every element is `x`.
     pub fn full(shape: Vec<usize>, x: f32) -> Result<Self, TensorError> {
-        let core = TensorCore::full(shape, x)?;
+        let core = TensorCore::full(&shape, x)?;
         Ok(Tensor::initialize(core))
     }
 
@@ -63,7 +63,7 @@ impl Tensor {
     ///
     /// Each element is sampled from the half-open range `[0, 1)`.
     pub fn rand(shape: Vec<usize>) -> Result<Self, TensorError> {
-        let core = TensorCore::rand(shape)?;
+        let core = TensorCore::rand(&shape)?;
         Ok(Tensor::initialize(core))
     }
 
@@ -72,14 +72,14 @@ impl Tensor {
     /// The generated values have mean `0` and standard deviation `1`. Unlike
     /// `rand`, these values are not constrained to `[0, 1)`.
     pub fn randn(shape: Vec<usize>) -> Result<Self, TensorError> {
-        let core = TensorCore::randn(shape)?;
+        let core = TensorCore::randn(&shape)?;
         Ok(Tensor::initialize(core))
     }
 
     // Element access
 
     /// Returns a shared reference to the element at `index`.
-    pub fn get(&self, index: &[usize]) -> Result<&f32, TensorError> {
+    pub fn get(&self, index: &[usize]) -> f32 {
         self.core.get(index)
     }
 
@@ -155,7 +155,7 @@ impl Tensor {
 
     /// Negates every element.
     pub fn neg(&self) -> Self {
-        Tensor::initialize(self.core.neg(&self))
+        -1.0 * self
     }
 
     /// Applies exponential function elementwise.
@@ -242,6 +242,18 @@ impl Tensor {
         Tensor::initialize(TensorCore::mulmat((lhs.core(), lhs), (rhs.core(), rhs)))
     }
 
+    pub fn get_topology(&self) -> Vec<Tensor> {
+        TensorCore::get_topology(&self)
+    }
+
+    pub fn grad(&self) -> Option<Self> {
+        self.core.grad()
+    }
+
+    pub fn backward(&self) {
+        TensorCore::backward(&self)
+    }
+
     pub fn computation_graph_string(&self) -> String {
         self.core().computation_graph_string()
     }
@@ -262,14 +274,14 @@ impl Add<&Tensor> for &Tensor {
 impl Sub<&Tensor> for &Tensor {
     type Output = Tensor;
     fn sub(self, rhs: &Tensor) -> Tensor {
-        Tensor::initialize(TensorCore::sub((self.core(), self), (rhs.core(), rhs)))
+        self + &rhs.neg()
     }
 }
 
 impl Div<&Tensor> for &Tensor {
     type Output = Tensor;
     fn div(self, rhs: &Tensor) -> Tensor {
-        Tensor::initialize(TensorCore::div((self.core(), self), (rhs.core(), rhs)))
+        Tensor::multiply_elementwise(self, &rhs.pow(-1))
     }
 }
 
