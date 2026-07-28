@@ -117,3 +117,21 @@ pred shape [batch, classes], axis 1 -> loss shape [batch]
 
 The graph for `cross_entropy` is recorded as natural log, elementwise
 multiplication, axis sum, and scalar multiplication by `-1`.
+
+## Automatic Differentiation
+
+These helpers are built from tensor operations, so they record computation
+graphs and participate in reverse-mode autodiff through the underlying tensor
+operations.
+
+For example:
+
+```rust
+let pred_probs = activation::softmax(&logits, 1)?;
+let value = loss::cross_entropy(&pred_probs, &target, 1).sum();
+
+value.backward();
+let d_logits = logits.grad();
+```
+
+The gradient rules are documented in [Tensor](tensor.md).
