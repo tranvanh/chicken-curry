@@ -1,6 +1,6 @@
 use chicken_curry::functions::{activation, loss};
 use chicken_curry::tensor::{Tensor, TensorError};
-use std::panic;
+use std::panic::{self, AssertUnwindSafe};
 
 fn tensor_2x2(data: Vec<f32>) -> Tensor {
     Tensor::new(vec![2, 2], data).expect("valid 2x2 tensor")
@@ -205,6 +205,50 @@ Max(axis=None, keep_shape=None)
 └──Constant
 "
     );
+}
+
+#[test]
+fn get_topology_returns_root_before_parent_dependencies() {
+    let tensor = Tensor::new(vec![2], vec![4.0, 9.0]).unwrap();
+    let result = (2.0 * &tensor.sqrt()).sum();
+
+    let topology = result.get_topology();
+
+    assert_eq!(topology.len(), 4);
+    assert_eq!(*topology[0].get(&[0]).unwrap(), 10.0);
+    assert_eq!(tensor_values(&topology[1], &[2]), vec![4.0, 6.0]);
+    assert_eq!(tensor_values(&topology[2], &[2]), vec![2.0, 3.0]);
+    assert_eq!(tensor_values(&topology[3], &[2]), vec![4.0, 9.0]);
+}
+
+#[test]
+fn get_topology_traverses_left_branch_before_right_branch() {
+    let left = Tensor::new(vec![2], vec![1.0, 4.0]).unwrap();
+    let right = Tensor::new(vec![2], vec![10.0, 20.0]).unwrap();
+    let scaled_left = 2.0 * &left;
+    let result = &scaled_left + &right;
+
+    let topology = result.get_topology();
+
+    assert_eq!(topology.len(), 4);
+    assert_eq!(tensor_values(&topology[0], &[2]), vec![12.0, 28.0]);
+    assert_eq!(tensor_values(&topology[1], &[2]), vec![2.0, 8.0]);
+    assert_eq!(tensor_values(&topology[2], &[2]), vec![1.0, 4.0]);
+    assert_eq!(tensor_values(&topology[3], &[2]), vec![10.0, 20.0]);
+}
+
+#[test]
+fn get_topology_visits_shared_dependencies_once() {
+    let tensor = Tensor::new(vec![2], vec![1.0, 2.0]).unwrap();
+    let doubled = 2.0 * &tensor;
+    let result = &doubled + &doubled;
+
+    let topology = result.get_topology();
+
+    assert_eq!(topology.len(), 3);
+    assert_eq!(tensor_values(&topology[0], &[2]), vec![4.0, 8.0]);
+    assert_eq!(tensor_values(&topology[1], &[2]), vec![2.0, 4.0]);
+    assert_eq!(tensor_values(&topology[2], &[2]), vec![1.0, 2.0]);
 }
 
 #[test]
@@ -656,9 +700,9 @@ fn axis_reductions_read_transposed_view_in_logical_order() {
 fn axis_reductions_panic_for_out_of_bounds_axis() {
     let tensor = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
 
-    let result = panic::catch_unwind(|| {
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
         tensor.sum_axis(2, false);
-    });
+    }));
 
     assert!(result.is_err());
 }
@@ -758,16 +802,16 @@ fn multiplication_operator_reads_transposed_view_with_strides() {
 #[test]
 fn transpose_panics_for_invalid_axis_mapping() {
     let repeated_axis = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
-    let repeated_axis_result = panic::catch_unwind(move || {
+    let repeated_axis_result = panic::catch_unwind(AssertUnwindSafe(move || {
         repeated_axis.transpose(&[0, 0]);
-    });
+    }));
 
     assert!(repeated_axis_result.is_err());
 
     let out_of_bounds_axis = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
-    let out_of_bounds_axis_result = panic::catch_unwind(move || {
+    let out_of_bounds_axis_result = panic::catch_unwind(AssertUnwindSafe(move || {
         out_of_bounds_axis.transpose(&[0, 2]);
-    });
+    }));
 
     assert!(out_of_bounds_axis_result.is_err());
 }
@@ -856,9 +900,9 @@ fn multiply_elementwise_panics_for_incompatible_rank_one_tensors() {
     let left = Tensor::new(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
     let right = Tensor::new(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
 
-    let result = panic::catch_unwind(|| {
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
         let _ = Tensor::multiply_elementwise(&left, &right);
-    });
+    }));
 
     assert!(result.is_err());
 }
@@ -868,9 +912,9 @@ fn multiplication_operator_panics_when_operand_rank_is_less_than_two() {
     let left = Tensor::new(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
     let right = Tensor::new(vec![3], vec![10.0, 20.0, 30.0]).unwrap();
 
-    let result = panic::catch_unwind(|| {
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
         let _ = &left * &right;
-    });
+    }));
 
     assert!(result.is_err());
 }
@@ -910,9 +954,9 @@ fn multiplication_operator_panics_for_incompatible_batch_shapes() {
     let left = Tensor::new(vec![2, 2, 2], vec![1.0; 8]).unwrap();
     let right = Tensor::new(vec![3, 2, 2], vec![1.0; 12]).unwrap();
 
-    let result = panic::catch_unwind(|| {
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
         let _ = &left * &right;
-    });
+    }));
 
     assert!(result.is_err());
 }
@@ -922,9 +966,9 @@ fn multiplication_operator_panics_for_incompatible_inner_dimensions() {
     let left = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
     let right = tensor_2x2(vec![1.0, 2.0, 3.0, 4.0]);
 
-    let result = panic::catch_unwind(|| {
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
         let _ = &left * &right;
-    });
+    }));
 
     assert!(result.is_err());
 }
@@ -988,9 +1032,9 @@ fn adding_tensors_with_different_shapes_panics() {
     let left = Tensor::new(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
     let right = Tensor::new(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
 
-    let result = panic::catch_unwind(|| {
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
         let _ = &left + &right;
-    });
+    }));
 
     assert!(result.is_err());
 }

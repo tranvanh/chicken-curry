@@ -22,7 +22,7 @@ pub(super) struct TensorCore {
 
     creator: TensorOperation,
     parents: Vec<Tensor>,
-    grad: RefCell<Tensor>,
+    grad: RefCell<Option<Tensor>>,
 }
 
 impl TensorCore {
@@ -45,7 +45,6 @@ impl TensorCore {
                 actual: data.len(),
             });
         }
-        let grad_core = TensorCore::ones(&shape)?;
         Ok(Self {
             strides: TensorCore::strides_for_shape(&shape),
             shape,
@@ -53,7 +52,7 @@ impl TensorCore {
             offset: 0,
             creator,
             parents,
-            grad: RefCell::new(Tensor::initialize(grad_core)),
+            grad: RefCell::new(None),
         })
     }
 
