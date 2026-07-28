@@ -160,14 +160,6 @@ impl TensorCore {
         TensorCore::get_flat_index(&index, &self.shape, &self.strides, self.offset).unwrap()
     }
 
-    fn value_at_index(&self, index: &[usize]) -> f32 {
-        // Backward code often works from logical indexes rather than borrowed
-        // element references, so this returns an owned scalar for reuse.
-        let flat_index =
-            TensorCore::get_flat_index(index, &self.shape, &self.strides, self.offset).unwrap();
-        self.data[flat_index]
-    }
-
     fn values(&self) -> Vec<f32> {
         // Materialize values in logical tensor order. This keeps grad math
         // correct for views such as transpose, whose storage order differs.
@@ -191,10 +183,10 @@ impl TensorCore {
 
     // Element access
 
-    pub(super) fn get(&self, index: &[usize]) -> Result<&f32, TensorError> {
+    pub(super) fn get(&self, index: &[usize]) -> f32 {
         let flat_index =
-            TensorCore::get_flat_index(index, &self.shape, &self.strides, self.offset)?;
-        Ok(&self.data[flat_index])
+            TensorCore::get_flat_index(index, &self.shape, &self.strides, self.offset).unwrap();
+        self.data[flat_index]
     }
 
     pub(super) fn get_mut(&mut self, index: &[usize]) -> Result<&mut f32, TensorError> {
@@ -894,8 +886,8 @@ impl TensorCore {
             let rhs_flat = TensorCore::ravel_index(&rhs_index, &rhs.core.shape);
             let upstream_value = upstream.core.data[upstream.core.logical_flat_index(flat_index)];
 
-            lhs_data[lhs_flat] += upstream_value * rhs.core.value_at_index(&rhs_index);
-            rhs_data[rhs_flat] += upstream_value * lhs.core.value_at_index(&lhs_index);
+            lhs_data[lhs_flat] += upstream_value * rhs.core.get(&rhs_index);
+            rhs_data[rhs_flat] += upstream_value * lhs.core.get(&lhs_index);
         }
 
         (
@@ -953,7 +945,7 @@ impl TensorCore {
             None => {
                 // Full-tensor sum has one output, so every input receives that
                 // single upstream scalar.
-                let upstream_value = upstream.core.value_at_index(&[0]);
+                let upstream_value = upstream.core.get(&[0]);
                 TensorCore::raw_tensor(
                     parent.core.shape.clone(),
                     vec![upstream_value; parent.core.shape.iter().product()],
@@ -970,7 +962,7 @@ impl TensorCore {
                     let input_index = TensorCore::unravel_index(flat_index, &parent.core.shape);
                     let upstream_index =
                         TensorCore::reduced_output_index(&input_index, *axis, keep_shape);
-                    data.push(upstream.core.value_at_index(&upstream_index));
+                    data.push(upstream.core.get(&upstream_index));
                 }
 
                 TensorCore::raw_tensor(parent.core.shape.clone(), data)
@@ -989,10 +981,10 @@ impl TensorCore {
         // subgrad commonly used for max reductions.
         match axis {
             None => {
-                let max = output.core.value_at_index(&[0]);
+                let max = output.core.get(&[0]);
                 let parent_values = parent.core.values();
                 let count = parent_values.iter().filter(|value| **value == max).count() as f32;
-                let upstream_value = upstream.core.value_at_index(&[0]);
+                let upstream_value = upstream.core.get(&[0]);
                 let data = parent_values
                     .iter()
                     .map(|value| {
@@ -1018,7 +1010,7 @@ impl TensorCore {
                     let output_index =
                         TensorCore::reduced_output_index(&input_index, *axis, keep_shape);
                     let output_flat = TensorCore::ravel_index(&output_index, &output.core.shape);
-                    if parent.core.value_at_index(&input_index) == output_values[output_flat] {
+                    if parent.core.get(&input_index) == output_values[output_flat] {
                         max_counts[output_flat] += 1.0;
                     }
                     output_indices.push(output_index);
@@ -1030,8 +1022,8 @@ impl TensorCore {
                     .map(|(flat_index, output_index)| {
                         let input_index = TensorCore::unravel_index(flat_index, &parent.core.shape);
                         let output_flat = TensorCore::ravel_index(output_index, &output.core.shape);
-                        if parent.core.value_at_index(&input_index) == output_values[output_flat] {
-                            upstream.core.value_at_index(output_index) / max_counts[output_flat]
+                        if parent.core.get(&input_index) == output_values[output_flat] {
+                            upstream.core.get(output_index) / max_counts[output_flat]
                         } else {
                             0.0
                         }
