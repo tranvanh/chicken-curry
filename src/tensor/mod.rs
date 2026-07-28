@@ -245,13 +245,18 @@ impl Tensor {
     pub fn get_topology(&self) -> Vec<Tensor> {
         TensorCore::get_topology(&self)
     }
-
+    pub fn zero_grad(&self) {
+        TensorCore::zero_grad(&self)
+    }
     pub fn grad(&self) -> Option<Self> {
         self.core.grad()
     }
 
     pub fn backward(&self) {
         TensorCore::backward(&self)
+    }
+    pub fn backward_with_grad(&self, grad: &Tensor) {
+        TensorCore::backward_with_grad(&self, grad)
     }
 
     pub fn computation_graph_string(&self) -> String {

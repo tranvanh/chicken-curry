@@ -62,7 +62,8 @@ fn main() -> Result<(), TensorError> {
 The project is currently between the tensor playground and early computation
 graph stages. Tensors support eager numerical operations, and operations record
 a simple graph of their creators and parent tensors. Basic reverse-mode
-automatic differentiation is available through `backward()` and `grad()`.
+automatic differentiation is available through `backward()`,
+`backward_with_grad()`, `grad()`, and `zero_grad()`.
 
 Implemented so far:
 
@@ -83,6 +84,7 @@ Implemented so far:
 - broadcasted batched matrix multiplication
 - computation graph strings for tensor operations
 - basic reverse-mode automatic differentiation for recorded tensor operations
+  with default all-ones output gradients and explicit upstream gradients
 - activation functions: sigmoid, ReLU, tanh, and softmax
 - loss functions: mean squared error and categorical cross entropy from
   probabilities
@@ -91,13 +93,13 @@ Implemented so far:
   addition, scalar multiplication, unary operations, transposition, matrix
   multiplication, batched matrix multiplication, broadcasting, reductions,
   activation/loss functions, computation graph output, backward propagation,
-  view behavior, and failure paths
+  numerical gradient checks, view behavior, and failure paths
 
 ## Documentation
 
 - [Tensor](docs/tensor.md) - tensor API, initializers, view storage, indexing,
   arithmetic, reductions, transposition, matrix multiplication, broadcasting
-  notes, and computation graph output
+  notes, computation graph output, and automatic differentiation
 - [Functions](docs/functions.md) - activation and loss functions
 
 ## Running Tests
@@ -109,8 +111,8 @@ cargo test
 The test suite currently covers tensor construction, initializers, indexing,
 mutable writes, arithmetic, unary operations, reductions, activation and loss
 functions, transposition, matrix multiplication, batched matrix multiplication,
-broadcasting, computation graph output, backward propagation, view behavior,
-and several failure paths.
+broadcasting, computation graph output, backward propagation, numerical
+gradient checks for autodiff, view behavior, and several failure paths.
 
 ## Continuous Integration
 

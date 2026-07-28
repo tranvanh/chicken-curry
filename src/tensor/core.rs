@@ -754,27 +754,37 @@ impl TensorCore {
         .unwrap()
     }
 
-    fn traverse_topology(
-        tensor: &Tensor,
-        order: &mut Vec<Tensor>,
-        visited: &mut HashSet<*const TensorCore>,
-    ) {
+    fn traverse_topology<F>(tensor: &Tensor, visited: &mut HashSet<*const TensorCore>, f: &mut F)
+    where
+        F: FnMut(&Tensor),
+    {
         visited.insert(Rc::as_ptr(&tensor.core));
         for parent in tensor.core.parents.iter() {
             let pointer = Rc::as_ptr(&parent.core);
             if !visited.contains(&pointer) {
-                TensorCore::traverse_topology(parent, order, visited);
+                TensorCore::traverse_topology(parent, visited, f);
             }
         }
-        order.push(tensor.clone());
+        f(tensor);
+    }
+
+    fn visit_topology<F>(tensor: &Tensor, mut f: F)
+    where
+        F: FnMut(&Tensor),
+    {
+        let mut visited: HashSet<*const TensorCore> = HashSet::new();
+        TensorCore::traverse_topology(tensor, &mut visited, &mut f);
     }
 
     pub(super) fn get_topology(tensor: &Tensor) -> Vec<Tensor> {
         let mut order: Vec<Tensor> = Vec::new();
-        let mut visited: HashSet<*const TensorCore> = HashSet::new();
-        TensorCore::traverse_topology(tensor, &mut order, &mut visited);
+        TensorCore::visit_topology(tensor, |t| order.push(t.clone()));
         order.reverse();
         order
+    }
+
+    pub(super) fn zero_grad(tensor: &Tensor) {
+        TensorCore::visit_topology(tensor, |t| *t.core().grad.borrow_mut() = None);
     }
 
     pub(super) fn grad(&self) -> Option<Tensor> {
@@ -1035,16 +1045,11 @@ impl TensorCore {
         }
     }
 
-    pub(super) fn backward(tensor: &Tensor) {
+    pub(super) fn backward_with_grad(tensor: &Tensor, gradient: &Tensor) {
+        tensor.core.accumulate_grad(&gradient);
         // Seed d(output)/d(output) with ones. Non-scalar outputs are treated as
         // if the caller requested the grad of their elementwise sum.
         let topology = Self::get_topology(tensor);
-        let ones = TensorCore::raw_tensor(
-            tensor.core.shape.clone(),
-            vec![1.0; tensor.core.shape.iter().product()],
-        );
-        tensor.core.accumulate_grad(&ones);
-
         for node in &topology {
             // Nodes unreachable from the seeded output have no grad to
             // propagate. In this topology that is uncommon, but the guard keeps
@@ -1061,15 +1066,9 @@ impl TensorCore {
                     let lhs = &node.core.parents[0];
                     let rhs = &node.core.parents[1];
                     lhs.core
-                        .accumulate_grad(&TensorCore::unbroadcast_grad(
-                            &upstream,
-                            &lhs.core.shape,
-                        ));
+                        .accumulate_grad(&TensorCore::unbroadcast_grad(&upstream, &lhs.core.shape));
                     rhs.core
-                        .accumulate_grad(&TensorCore::unbroadcast_grad(
-                            &upstream,
-                            &rhs.core.shape,
-                        ));
+                        .accumulate_grad(&TensorCore::unbroadcast_grad(&upstream, &rhs.core.shape));
                 }
                 TensorOperation::ScalMul { scalar } => {
                     // Scalar multiplication scales the upstream grad by
@@ -1235,6 +1234,14 @@ impl TensorCore {
                 }
             }
         }
+    }
+
+    pub(super) fn backward(tensor: &Tensor) {
+        let ones = TensorCore::raw_tensor(
+            tensor.core.shape.clone(),
+            vec![1.0; tensor.core.shape.iter().product()],
+        );
+        Self::backward_with_grad(tensor, &ones)
     }
 
     // Formatting helpers

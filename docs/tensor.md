@@ -483,14 +483,68 @@ y.backward();
 let dx = x.grad().unwrap();
 ```
 
-The output tensor is seeded with ones. For non-scalar outputs, this behaves
-like differentiating the elementwise sum of the output. Gradients are available
-through `grad()` after `backward()` reaches a node.
+`backward()` seeds the output tensor with ones. For non-scalar outputs, this
+behaves like differentiating the elementwise sum of the output.
+
+Use `backward_with_grad()` when the output is not scalar and you want to supply
+an explicit upstream gradient:
+
+```rust
+let x = Tensor::new(vec![2, 3], vec![
+    -1.0, -0.5, 0.0,
+    0.5, 1.0, 1.5,
+])?;
+let weights = Tensor::new(vec![3], vec![0.5, -1.5, 2.0])?;
+let y = Tensor::multiply_elementwise(&x.sigmoid(), &weights).sum_axis(1, false);
+let upstream = Tensor::new(vec![2], vec![0.7, -1.3])?;
+
+y.backward_with_grad(&upstream);
+
+let dx = x.grad().unwrap();
+```
+
+The shape of the explicit upstream gradient should match the output tensor's
+shape. In the example above, `y` has shape `[2]`, so `upstream` also has shape
+`[2]`. This computes the vector-Jacobian product for
+`upstream dot y`.
+
+Gradients are available through `grad()` after a backward pass reaches a node:
+
+```rust
+let grad = x.grad();
+```
+
+Gradient values are stored on the tensors in the recorded graph. If you want to
+reuse the same graph for another backward pass, clear existing gradients first:
+
+```rust
+y.zero_grad();
+y.backward();
+```
 
 When forward operations use broadcasting, backward unbroadcasts grads back to
 the original parent shape by summing repeated contributions. Shared graph
 dependencies accumulate all downstream contributions before propagating grads
 further.
+
+Implemented gradient rules currently cover:
+
+- addition, subtraction, division, scalar multiplication, and explicit
+  elementwise multiplication
+- matrix multiplication, including broadcasted batch dimensions
+- transpose
+- `abs`, `sqrt`, `ln`, `exp`, `pow`, `powf`, `sigmoid`, `relu`, and `tanh`
+- `sum`, `mean`, `max`, `sum_axis`, `mean_axis`, and `max_axis`
+
+Composite helpers such as activation and loss functions are differentiable when
+they are built from recorded tensor operations. `softmax`, `mse`, and
+`cross_entropy` therefore appear as their lower-level tensor operations in the
+graph and participate in backward propagation through those operations.
+
+The test suite includes finite-difference numerical gradient checks for both
+`backward()` and `backward_with_grad()`. These tests rebuild fresh tensors for
+each perturbation and compare the numerical gradient against the gradient stored
+by autodiff.
 
 ## Display
 
