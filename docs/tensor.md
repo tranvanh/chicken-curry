@@ -74,8 +74,10 @@ All initializers delegate shape validation to `Tensor::new`, so they return
 ## Reading Values
 
 ```rust
-let value = tensor.get(&[1, 2])?;
+let value = tensor.get(&[1, 2]);
 ```
+
+`get` returns an owned `f32` value.
 
 Indexes are multidimensional and must have the same rank as the tensor.
 
@@ -88,12 +90,10 @@ tensor.get(&[1, 0]);
 tensor.get(&[1, 2]);
 ```
 
-Possible indexing errors:
+Invalid indexes currently panic inside the tensor core:
 
-- `TensorError::ShapeMismatch { expected, actual }` when the index rank does
-  not match the tensor rank
-- `TensorError::OutOfBounds { bound, index }` when an index is outside its
-  dimension
+- rank mismatch when the index rank does not match the tensor rank
+- out-of-bounds access when an index is outside its dimension
 
 Mutable access is available through:
 
@@ -425,8 +425,8 @@ Activation and loss helpers are documented separately in
 ## Computation Graph Output
 
 Each tensor records the operation that produced it and the parent tensors used
-by that operation. This is currently a display/debug feature, not automatic
-differentiation.
+by that operation. The graph is used for display/debug output and for
+reverse-mode automatic differentiation through `backward()`.
 
 ```rust
 let tensor = Tensor::ones(vec![2, 2])?;
@@ -453,18 +453,44 @@ result.print_computation_graph();
 Recorded operations include:
 
 - constants and initializers as `Constant`
-- binary elementwise operations: `Add`, `Sub`, `Div`, and `ElemMul`
+- binary elementwise operations: `Add` and `ElemMul`
 - scalar multiplication as `ScalMul(scalar=...)`
 - matrix multiplication as `MatMul`
 - transposition as `Transpose(axis=...)`
-- unary operations: `Abs`, `Ln`, `Sqrt`, `Neg`, `Exp`, `Pow`, `PowF`,
-  `Sigmoid`, `Relu`, and `Tanh`
+- unary operations: `Abs`, `Ln`, `Sqrt`, `Exp`, `Pow`, `PowF`, `Sigmoid`,
+  `Relu`, and `Tanh`
 - reductions as `Sum(axis=..., keep_shape=...)` and
   `Max(axis=..., keep_shape=...)`
+
+`neg` is represented as scalar multiplication by `-1`, subtraction is
+represented as addition with a negated right-hand side, and division is
+represented as elementwise multiplication by `pow(-1)`.
 
 `mean` and `mean_axis` are represented as `Sum` followed by scalar
 multiplication. Composite helpers such as `softmax`, `mse`, and
 `cross_entropy` appear as the lower-level tensor operations they are built from.
+
+## Automatic Differentiation
+
+Calling `backward()` starts reverse-mode autodiff from a tensor:
+
+```rust
+let x = Tensor::new(vec![2], vec![3.0, 4.0])?;
+let y = (2.0 * &x).sum();
+
+y.backward();
+
+let dx = x.grad().unwrap();
+```
+
+The output tensor is seeded with ones. For non-scalar outputs, this behaves
+like differentiating the elementwise sum of the output. Gradients are available
+through `grad()` after `backward()` reaches a node.
+
+When forward operations use broadcasting, backward unbroadcasts grads back to
+the original parent shape by summing repeated contributions. Shared graph
+dependencies accumulate all downstream contributions before propagating grads
+further.
 
 ## Display
 
