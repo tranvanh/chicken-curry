@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fmt;
+use std::ops::Deref;
 use std::rc::Rc;
 
 use rand::random;
@@ -22,6 +23,9 @@ pub(super) struct TensorCore {
 
     creator: TensorOperation,
     parents: Vec<Tensor>,
+
+    // TensorCore is used as Rc, if the ref count is > 1 the member data are immutable.
+    // We solve this by using RefCell, to make the grad mutable during updates
     grad: RefCell<Option<Tensor>>,
 }
 
@@ -746,7 +750,7 @@ impl TensorCore {
     }
 
     pub(super) fn grad(&self) -> Option<Tensor>{
-        self.grad.borrow_mut().clone()
+        self.grad.borrow().deref().clone()
     }
 
     // Formatting helpers
