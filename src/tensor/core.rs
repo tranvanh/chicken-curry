@@ -745,6 +745,10 @@ impl TensorCore {
         order
     }
 
+    pub(super) fn grad(&self) -> Option<Tensor>{
+        self.grad.borrow_mut().clone()
+    }
+
     // Formatting helpers
 
     fn print_tensor(

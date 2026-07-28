@@ -246,6 +246,10 @@ impl Tensor {
         TensorCore::get_topology(&self)
     }
 
+    pub fn grad(&self) -> Option<Self> {
+        self.core.grad()
+    }
+
     pub fn computation_graph_string(&self) -> String {
         self.core().computation_graph_string()
     }
