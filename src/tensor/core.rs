@@ -755,6 +755,7 @@ impl TensorCore {
     pub(super) fn backward(tensor: &Tensor) {
         let core = tensor.core();
         let topology = Self::get_topology_rev(tensor);
+        // !Important: The grad has independent history graph, be careful to not attach it to the main graph 
         let ones = Tensor::initialize(TensorCore::ones(&core.shape).unwrap());
         core.accumulate_grad(&ones);
 
