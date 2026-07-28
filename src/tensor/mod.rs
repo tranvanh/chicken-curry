@@ -79,8 +79,8 @@ impl Tensor {
     // Element access
 
     /// Returns a shared reference to the element at `index`.
-    pub fn get(&self, index: &[usize]) -> Result<f32, TensorError> {
-        Ok(self.core.get(index))
+    pub fn get(&self, index: &[usize]) -> f32 {
+        self.core.get(index)
     }
 
     /// Returns a mutable reference to the element at `index`.
