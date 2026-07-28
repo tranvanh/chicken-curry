@@ -242,8 +242,8 @@ impl Tensor {
         Tensor::initialize(TensorCore::mulmat((lhs.core(), lhs), (rhs.core(), rhs)))
     }
 
-    pub fn get_topology(&self) -> Vec<Tensor>{
-        TensorCore::get_topology(&self)
+    pub fn get_topology_rev(&self) -> Vec<Tensor>{
+        TensorCore::get_topology_rev(&self)
     }
 
     pub fn grad(&self) -> Option<Self> {

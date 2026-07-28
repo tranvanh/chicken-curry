@@ -730,7 +730,7 @@ impl TensorCore {
         .unwrap()
     }
 
-    fn traverse_topology(tensor: &Tensor, order: &mut Vec<Tensor>, visited: &mut HashSet<*const TensorCore>) {
+    fn traverse_topology_rev(tensor: &Tensor, order: &mut Vec<Tensor>, visited: &mut HashSet<*const TensorCore>) {
         visited.insert(Rc::as_ptr(&tensor.core));
         order.push(tensor.clone());
         for p in tensor.core.parents.iter() {
@@ -738,19 +738,58 @@ impl TensorCore {
             if visited.contains(&pointer) {
                 continue;
             }
-            TensorCore::traverse_topology(p, order, visited);
+            TensorCore::traverse_topology_rev(p, order, visited);
         }
     }
 
-    pub(super) fn get_topology(tensor: &Tensor) -> Vec<Tensor> {
+    pub(super) fn get_topology_rev(tensor: &Tensor) -> Vec<Tensor> {
         let mut order : Vec<Tensor> = Vec::new();
         let mut visited : HashSet<*const TensorCore> = HashSet::new();
-        TensorCore::traverse_topology(tensor, &mut order, &mut visited);
+        TensorCore::traverse_topology_rev(tensor, &mut order, &mut visited);
         order
     }
 
     pub(super) fn grad(&self) -> Option<Tensor>{
         self.grad.borrow().deref().clone()
+    }
+
+    fn accumulate_grad(&self, contribution : &Tensor){
+        let mut grad = self.grad.borrow_mut();
+        if grad.is_none(){
+            *grad = Some(contribution.clone());
+        }
+        else{
+            let original = grad.as_ref().unwrap();
+            *grad = Some(original + &contribution);
+        }
+    }
+
+    pub(super) fn backward(tensor: &Tensor) {
+        let core = tensor.core();
+        let topology = Self::get_topology_rev(tensor);
+        let ones = Tensor::initialize(TensorCore::ones(&core.shape).unwrap());
+        core.accumulate_grad(&ones);
+
+        for node in &topology {
+            let upstream = core.grad();
+            
+            // Derivative rules
+            match &core.creator {
+                TensorOperation::Add => {
+                    node.core.parents[0].core.accumulate_grad(upstream.as_ref().unwrap());
+                    node.core.parents[1].core.accumulate_grad(upstream.as_ref().unwrap());
+                }
+                TensorOperation::ScalMul{scalar} => {
+                    let contribution = upstream.unwrap().clone();
+                    node.core.parents[0].core.accumulate_grad(&(*scalar * &contribution));
+                }
+                default=> {
+
+                }
+            }
+        }
+
+
     }
 
     // Formatting helpers
