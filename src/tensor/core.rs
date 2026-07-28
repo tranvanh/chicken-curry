@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::fmt;
 use std::rc::Rc;
 
@@ -724,6 +725,25 @@ impl TensorCore {
             vec![lhs.1.clone(), rhs.1.clone()],
         )
         .unwrap()
+    }
+
+    fn traverse_topology(tensor: &Tensor, order: &mut Vec<Tensor>, visited: &mut HashSet<*const TensorCore>) {
+        visited.insert(Rc::as_ptr(&tensor.core));
+        order.push(tensor.clone());
+        for p in tensor.core.parents.iter() {
+            let pointer = Rc::as_ptr(&p.core);
+            if visited.contains(&pointer) {
+                continue;
+            }
+            TensorCore::traverse_topology(p, order, visited);
+        }
+    }
+
+    pub(super) fn get_topology(tensor: &Tensor) -> Vec<Tensor> {
+        let mut order : Vec<Tensor> = Vec::new();
+        let mut visited : HashSet<*const TensorCore> = HashSet::new();
+        TensorCore::traverse_topology(tensor, &mut order, &mut visited);
+        order
     }
 
     // Formatting helpers

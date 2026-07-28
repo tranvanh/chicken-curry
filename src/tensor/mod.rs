@@ -242,6 +242,10 @@ impl Tensor {
         Tensor::initialize(TensorCore::mulmat((lhs.core(), lhs), (rhs.core(), rhs)))
     }
 
+    pub fn get_topology(&self) -> Vec<Tensor>{
+        TensorCore::get_topology(&self)
+    }
+
     pub fn computation_graph_string(&self) -> String {
         self.core().computation_graph_string()
     }
