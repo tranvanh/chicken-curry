@@ -397,10 +397,6 @@ impl TensorCore {
         self.map(|x| x.ln(), TensorOperation::Ln, tensor)
     }
 
-    pub(super) fn neg(&self, tensor: &Tensor) -> Self {
-        self.map(|x| -1.0 * x, TensorOperation::Neg, tensor)
-    }
-
     pub(super) fn exp(&self, tensor: &Tensor) -> Self {
         self.map(|x| x.exp(), TensorOperation::Exp, tensor)
     }
@@ -603,14 +599,6 @@ impl TensorCore {
         TensorCore::elementwise_binary(lhs, rhs, |left, right| left + right, TensorOperation::Add)
     }
 
-    pub(super) fn sub(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor)) -> Self {
-        TensorCore::elementwise_binary(lhs, rhs, |left, right| left - right, TensorOperation::Sub)
-    }
-
-    pub(super) fn div(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor)) -> Self {
-        TensorCore::elementwise_binary(lhs, rhs, |left, right| left / right, TensorOperation::Div)
-    }
-
     pub(super) fn multiply_elementwise(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor)) -> Self {
         TensorCore::elementwise_binary(
             lhs,
@@ -772,7 +760,7 @@ impl TensorCore {
 
         for node in &topology {
             let upstream = core.grad();
-            
+
             // Derivative rules
             match &core.creator {
                 TensorOperation::Add => {
@@ -783,6 +771,7 @@ impl TensorCore {
                     let contribution = upstream.unwrap().clone();
                     node.core.parents[0].core.accumulate_grad(&(*scalar * &contribution));
                 }
+
                 default=> {
 
                 }
