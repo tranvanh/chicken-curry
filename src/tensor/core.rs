@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
@@ -18,10 +19,9 @@ pub(super) struct TensorCore {
     strides: Vec<usize>,
     offset: usize,
 
-    #[allow(dead_code)]
     creator: TensorOperation,
-    #[allow(dead_code)]
     parents: Vec<Tensor>,
+    grad: RefCell<Tensor>,
 }
 
 impl TensorCore {
@@ -44,7 +44,7 @@ impl TensorCore {
                 actual: data.len(),
             });
         }
-
+        let grad_core = TensorCore::ones(&shape)?;
         Ok(Self {
             strides: TensorCore::strides_for_shape(&shape),
             shape,
@@ -52,34 +52,35 @@ impl TensorCore {
             offset: 0,
             creator,
             parents,
+            grad: RefCell::new(Tensor::initialize(grad_core)),
         })
     }
 
-    pub(super) fn zeros(shape: Vec<usize>) -> Result<Self, TensorError> {
+    pub(super) fn zeros(shape: &Vec<usize>) -> Result<Self, TensorError> {
         let size = shape.iter().product();
-        TensorCore::new(shape, vec![0.0; size], TensorOperation::Constant, vec![])
+        TensorCore::new(shape.clone(), vec![0.0; size], TensorOperation::Constant, vec![])
     }
 
-    pub(super) fn ones(shape: Vec<usize>) -> Result<Self, TensorError> {
+    pub(super) fn ones(shape: &Vec<usize>) -> Result<Self, TensorError> {
         let size = shape.iter().product();
-        TensorCore::new(shape, vec![1.0; size], TensorOperation::Constant, vec![])
+        TensorCore::new(shape.clone(), vec![1.0; size], TensorOperation::Constant, vec![])
     }
 
-    pub(super) fn full(shape: Vec<usize>, x: f32) -> Result<Self, TensorError> {
+    pub(super) fn full(shape: &Vec<usize>, x: f32) -> Result<Self, TensorError> {
         let size = shape.iter().product();
-        TensorCore::new(shape, vec![x; size], TensorOperation::Constant, vec![])
+        TensorCore::new(shape.clone(), vec![x; size], TensorOperation::Constant, vec![])
     }
 
-    pub(super) fn rand(shape: Vec<usize>) -> Result<Self, TensorError> {
+    pub(super) fn rand(shape: &Vec<usize>) -> Result<Self, TensorError> {
         let size = shape.iter().product();
         let data = (0..size).map(|_| random::<f32>()).collect();
-        TensorCore::new(shape, data, TensorOperation::Constant, vec![])
+        TensorCore::new(shape.clone(), data, TensorOperation::Constant, vec![])
     }
 
-    pub(super) fn randn(shape: Vec<usize>) -> Result<Self, TensorError> {
+    pub(super) fn randn(shape: &Vec<usize>) -> Result<Self, TensorError> {
         let size = shape.iter().product();
         let data = (0..size).map(|_| TensorCore::standard_normal()).collect();
-        TensorCore::new(shape, data, TensorOperation::Constant, vec![])
+        TensorCore::new(shape.clone(), data, TensorOperation::Constant, vec![])
     }
 
     fn standard_normal() -> f32 {
