@@ -41,9 +41,65 @@ fn assert_values_close(actual: Vec<f32>, expected: Vec<f32>) {
     }
 }
 
+fn assert_close_with_tolerance(actual: f32, expected: f32, tolerance: f32) {
+    assert!(
+        (actual - expected).abs() < tolerance,
+        "expected {expected}, got {actual}, tolerance {tolerance}"
+    );
+}
+
+fn assert_values_close_with_tolerance(actual: Vec<f32>, expected: Vec<f32>, tolerance: f32) {
+    assert_eq!(actual.len(), expected.len());
+
+    for i in 0..actual.len() {
+        assert_close_with_tolerance(actual[i], expected[i], tolerance);
+    }
+}
+
 fn assert_grad_values_close(tensor: &Tensor, shape: &[usize], expected: Vec<f32>) {
     let grad = tensor.grad().expect("tensor should have a grad");
     assert_values_close(tensor_values(&grad, shape), expected);
+}
+
+fn weighted_output_sum(output: &Tensor, output_shape: &[usize], weights: &[f32]) -> f32 {
+    let values = tensor_values(output, output_shape);
+    assert_eq!(values.len(), weights.len());
+
+    values
+        .iter()
+        .zip(weights.iter())
+        .map(|(value, weight)| value * weight)
+        .sum()
+}
+
+fn numerical_gradient<F>(
+    shape: &[usize],
+    data: &[f32],
+    output_shape: &[usize],
+    output_weights: &[f32],
+    f: &F,
+) -> Vec<f32>
+where
+    F: Fn(&Tensor) -> Tensor,
+{
+    let epsilon = 0.001;
+    let mut gradient = Vec::with_capacity(data.len());
+
+    for i in 0..data.len() {
+        let mut plus_data = data.to_vec();
+        plus_data[i] += epsilon;
+        let plus_input = Tensor::new(shape.to_vec(), plus_data).unwrap();
+        let plus = weighted_output_sum(&f(&plus_input), output_shape, output_weights);
+
+        let mut minus_data = data.to_vec();
+        minus_data[i] -= epsilon;
+        let minus_input = Tensor::new(shape.to_vec(), minus_data).unwrap();
+        let minus = weighted_output_sum(&f(&minus_input), output_shape, output_weights);
+
+        gradient.push((plus - minus) / (2.0 * epsilon));
+    }
+
+    gradient
 }
 
 #[test]
@@ -325,6 +381,46 @@ fn backward_propagates_through_matrix_multiplication() {
 
     assert_grad_values_close(&left, &[2, 3], vec![15.0, 19.0, 23.0, 15.0, 19.0, 23.0]);
     assert_grad_values_close(&right, &[3, 2], vec![5.0, 5.0, 7.0, 7.0, 9.0, 9.0]);
+}
+
+#[test]
+fn backward_gradient_matches_numerical_gradient_for_composed_scalar_function() {
+    let shape = vec![2, 2];
+    let data = vec![0.2, 0.7, 1.1, 1.6];
+    let function = |input: &Tensor| {
+        let squared = input.powf(2.0);
+        let exponential = input.exp();
+        (&squared + &exponential).tanh().mean()
+    };
+    let input = Tensor::new(shape.clone(), data.clone()).unwrap();
+    let output = function(&input);
+
+    output.backward();
+
+    let analytical = tensor_values(&input.grad().unwrap(), &shape);
+    let numerical = numerical_gradient(&shape, &data, &[1], &[1.0], &function);
+    assert_values_close_with_tolerance(analytical, numerical, 0.001);
+}
+
+#[test]
+fn backward_with_grad_matches_numerical_gradient_for_vector_jacobian_product() {
+    let shape = vec![2, 3];
+    let data = vec![-1.2, -0.4, 0.3, 0.8, 1.1, 1.7];
+    let weights = Tensor::new(vec![3], vec![0.5, -1.5, 2.0]).unwrap();
+    let upstream_values = vec![0.7, -1.3];
+    let function = |input: &Tensor| {
+        let activated = input.sigmoid();
+        Tensor::multiply_elementwise(&activated, &weights).sum_axis(1, false)
+    };
+    let input = Tensor::new(shape.clone(), data.clone()).unwrap();
+    let output = function(&input);
+    let upstream = Tensor::new(vec![2], upstream_values.clone()).unwrap();
+
+    output.backward_with_grad(&upstream);
+
+    let analytical = tensor_values(&input.grad().unwrap(), &shape);
+    let numerical = numerical_gradient(&shape, &data, &[2], &upstream_values, &function);
+    assert_values_close_with_tolerance(analytical, numerical, 0.001);
 }
 
 #[test]

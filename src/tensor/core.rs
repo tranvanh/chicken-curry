@@ -754,12 +754,10 @@ impl TensorCore {
         .unwrap()
     }
 
-    fn traverse_topology<F>(
-        tensor: &Tensor,
-        visited: &mut HashSet<*const TensorCore>,
-        f: &mut F
-    )     where
-        F: FnMut(&Tensor) {
+    fn traverse_topology<F>(tensor: &Tensor, visited: &mut HashSet<*const TensorCore>, f: &mut F)
+    where
+        F: FnMut(&Tensor),
+    {
         visited.insert(Rc::as_ptr(&tensor.core));
         for parent in tensor.core.parents.iter() {
             let pointer = Rc::as_ptr(&parent.core);
@@ -770,24 +768,23 @@ impl TensorCore {
         f(tensor);
     }
 
-    fn visit_topology<F>(
-        tensor: &Tensor,
-        mut f: F
-    )     where
-        F: FnMut(&Tensor) {
+    fn visit_topology<F>(tensor: &Tensor, mut f: F)
+    where
+        F: FnMut(&Tensor),
+    {
         let mut visited: HashSet<*const TensorCore> = HashSet::new();
         TensorCore::traverse_topology(tensor, &mut visited, &mut f);
     }
 
     pub(super) fn get_topology(tensor: &Tensor) -> Vec<Tensor> {
         let mut order: Vec<Tensor> = Vec::new();
-        TensorCore::visit_topology(tensor, |t|order.push(t.clone()));
+        TensorCore::visit_topology(tensor, |t| order.push(t.clone()));
         order.reverse();
         order
     }
 
     pub(super) fn zero_grad(tensor: &Tensor) {
-        TensorCore::visit_topology(tensor, |t| *t.core().grad.borrow_mut() = None );
+        TensorCore::visit_topology(tensor, |t| *t.core().grad.borrow_mut() = None);
     }
 
     pub(super) fn grad(&self) -> Option<Tensor> {
@@ -1048,7 +1045,7 @@ impl TensorCore {
         }
     }
 
-    pub (super) fn backward_with_grad(tensor: &Tensor, gradient: &Tensor) {
+    pub(super) fn backward_with_grad(tensor: &Tensor, gradient: &Tensor) {
         tensor.core.accumulate_grad(&gradient);
         // Seed d(output)/d(output) with ones. Non-scalar outputs are treated as
         // if the caller requested the grad of their elementwise sum.
@@ -1069,15 +1066,9 @@ impl TensorCore {
                     let lhs = &node.core.parents[0];
                     let rhs = &node.core.parents[1];
                     lhs.core
-                        .accumulate_grad(&TensorCore::unbroadcast_grad(
-                            &upstream,
-                            &lhs.core.shape,
-                        ));
+                        .accumulate_grad(&TensorCore::unbroadcast_grad(&upstream, &lhs.core.shape));
                     rhs.core
-                        .accumulate_grad(&TensorCore::unbroadcast_grad(
-                            &upstream,
-                            &rhs.core.shape,
-                        ));
+                        .accumulate_grad(&TensorCore::unbroadcast_grad(&upstream, &rhs.core.shape));
                 }
                 TensorOperation::ScalMul { scalar } => {
                     // Scalar multiplication scales the upstream grad by

@@ -245,7 +245,9 @@ impl Tensor {
     pub fn get_topology(&self) -> Vec<Tensor> {
         TensorCore::get_topology(&self)
     }
-    pub fn zero_grad(&self) { TensorCore::zero_grad(&self) }
+    pub fn zero_grad(&self) {
+        TensorCore::zero_grad(&self)
+    }
     pub fn grad(&self) -> Option<Self> {
         self.core.grad()
     }
