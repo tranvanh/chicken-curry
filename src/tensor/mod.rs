@@ -155,7 +155,7 @@ impl Tensor {
 
     /// Negates every element.
     pub fn neg(&self) -> Self {
-        Tensor::initialize(self.core.neg(&self))
+        -1.0 * self
     }
 
     /// Applies exponential function elementwise.
@@ -274,14 +274,14 @@ impl Add<&Tensor> for &Tensor {
 impl Sub<&Tensor> for &Tensor {
     type Output = Tensor;
     fn sub(self, rhs: &Tensor) -> Tensor {
-        Tensor::initialize(TensorCore::sub((self.core(), self), (rhs.core(), rhs)))
+        self + &rhs.neg()
     }
 }
 
 impl Div<&Tensor> for &Tensor {
     type Output = Tensor;
     fn div(self, rhs: &Tensor) -> Tensor {
-        Tensor::initialize(TensorCore::div((self.core(), self), (rhs.core(), rhs)))
+        Tensor::multiply_elementwise(self, &rhs.pow(-1))
     }
 }
 

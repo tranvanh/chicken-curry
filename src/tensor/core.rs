@@ -161,12 +161,16 @@ impl TensorCore {
     }
 
     fn value_at_index(&self, index: &[usize]) -> f32 {
+        // Backward code often works from logical indexes rather than borrowed
+        // element references, so this returns an owned scalar for reuse.
         let flat_index =
             TensorCore::get_flat_index(index, &self.shape, &self.strides, self.offset).unwrap();
         self.data[flat_index]
     }
 
     fn values(&self) -> Vec<f32> {
+        // Materialize values in logical tensor order. This keeps gradient math
+        // correct for views such as transpose, whose storage order differs.
         let size: usize = self.shape.iter().product();
         (0..size)
             .map(|index| self.data[self.logical_flat_index(index)])
@@ -174,10 +178,14 @@ impl TensorCore {
     }
 
     fn raw_tensor(shape: Vec<usize>, data: Vec<f32>) -> Tensor {
+        // A raw tensor is a detached constant used as gradient storage. It has
+        // no parents, so accumulating gradients never grows the forward graph.
         Tensor::initialize(TensorCore::new(shape, data, TensorOperation::Constant, vec![]).unwrap())
     }
 
     fn detached(tensor: &Tensor) -> Tensor {
+        // Copy shape and logical values, intentionally dropping creator and
+        // parents. Gradients should be numeric buffers, not differentiable ops.
         TensorCore::raw_tensor(tensor.core.shape.clone(), tensor.core.values())
     }
 
@@ -433,10 +441,6 @@ impl TensorCore {
         self.map(|x| x.ln(), TensorOperation::Ln, tensor)
     }
 
-    pub(super) fn neg(&self, tensor: &Tensor) -> Self {
-        self.map(|x| -x, TensorOperation::Neg, tensor)
-    }
-
     pub(super) fn exp(&self, tensor: &Tensor) -> Self {
         self.map(|x| x.exp(), TensorOperation::Exp, tensor)
     }
@@ -639,14 +643,6 @@ impl TensorCore {
         TensorCore::elementwise_binary(lhs, rhs, |left, right| left + right, TensorOperation::Add)
     }
 
-    pub(super) fn sub(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor)) -> Self {
-        TensorCore::elementwise_binary(lhs, rhs, |left, right| left - right, TensorOperation::Sub)
-    }
-
-    pub(super) fn div(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor)) -> Self {
-        TensorCore::elementwise_binary(lhs, rhs, |left, right| left / right, TensorOperation::Div)
-    }
-
     pub(super) fn multiply_elementwise(lhs: (&Self, &Tensor), rhs: (&Self, &Tensor)) -> Self {
         TensorCore::elementwise_binary(
             lhs,
@@ -794,8 +790,13 @@ impl TensorCore {
     }
 
     fn accumulate_grad(&self, contribution: &Tensor) {
+        // Multiple downstream consumers can contribute to the same node. This
+        // method implements in-place conceptual accumulation with a fresh raw
+        // tensor buffer because Tensor data itself is behind shared handles.
         let mut grad = self.grad.borrow_mut();
         if grad.is_none() {
+            // Gradients are detached constants so backward bookkeeping does not
+            // become part of the forward computation graph.
             *grad = Some(TensorCore::detached(contribution));
         } else {
             let original = grad.as_ref().unwrap();
@@ -810,7 +811,11 @@ impl TensorCore {
         }
     }
 
+    /// When broadcasting the shape is often expanded,
+    /// we need to assign the contribution to its original reduced shape
     fn reduce_broadcast_gradient(contribution: &Tensor, target_shape: &[usize]) -> Tensor {
+        // Backward must undo forward broadcasting by summing every expanded
+        // output-gradient element back into the original input position.
         let contribution_shape = &contribution.core.shape;
         let target_size: usize = target_shape.iter().product();
         let contribution_size: usize = contribution_shape.iter().product();
@@ -831,6 +836,8 @@ impl TensorCore {
     where
         F: Fn(f32) -> f32,
     {
+        // Elementwise unary operations preserve shape, so each parent gradient
+        // is simply upstream * local_derivative(parent_value).
         let upstream_values = upstream.core.values();
         let parent_values = parent.core.values();
         let data = parent_values
@@ -851,6 +858,8 @@ impl TensorCore {
     where
         F: Fn(f32, f32) -> f32,
     {
+        // Some derivatives are cheaper or more stable when expressed using the
+        // already-computed output, such as exp, sigmoid, and tanh.
         let upstream_values = upstream.core.values();
         let parent_values = parent.core.values();
         let output_values = output.core.values();
@@ -867,6 +876,9 @@ impl TensorCore {
     }
 
     fn elementwise_multiply_gradients(node: &Tensor, upstream: &Tensor) -> (Tensor, Tensor) {
+        // For z = x * y, dz/dx = y and dz/dy = x. Because x or y may have been
+        // broadcast, each output element contributes back to a possibly reused
+        // input position.
         let lhs = &node.core.parents[0];
         let rhs = &node.core.parents[1];
         let output_shape = &node.core.shape;
@@ -892,35 +904,11 @@ impl TensorCore {
         )
     }
 
-    fn elementwise_divide_gradients(node: &Tensor, upstream: &Tensor) -> (Tensor, Tensor) {
-        let lhs = &node.core.parents[0];
-        let rhs = &node.core.parents[1];
-        let output_shape = &node.core.shape;
-        let output_size: usize = output_shape.iter().product();
-        let mut lhs_data = vec![0.0; lhs.core.shape.iter().product()];
-        let mut rhs_data = vec![0.0; rhs.core.shape.iter().product()];
-
-        for flat_index in 0..output_size {
-            let output_index = TensorCore::unravel_index(flat_index, output_shape);
-            let lhs_index = TensorCore::broadcast_index(&output_index, &lhs.core.shape);
-            let rhs_index = TensorCore::broadcast_index(&output_index, &rhs.core.shape);
-            let lhs_flat = TensorCore::ravel_index(&lhs_index, &lhs.core.shape);
-            let rhs_flat = TensorCore::ravel_index(&rhs_index, &rhs.core.shape);
-            let upstream_value = upstream.core.data[upstream.core.logical_flat_index(flat_index)];
-            let lhs_value = lhs.core.value_at_index(&lhs_index);
-            let rhs_value = rhs.core.value_at_index(&rhs_index);
-
-            lhs_data[lhs_flat] += upstream_value / rhs_value;
-            rhs_data[rhs_flat] -= upstream_value * lhs_value / rhs_value.powi(2);
-        }
-
-        (
-            TensorCore::raw_tensor(lhs.core.shape.clone(), lhs_data),
-            TensorCore::raw_tensor(rhs.core.shape.clone(), rhs_data),
-        )
-    }
-
     fn matmul_gradients(node: &Tensor, upstream: &Tensor) -> (Tensor, Tensor) {
+        // Matrix multiplication uses the standard identities:
+        // dL/dA = dL/dC * B^T and dL/dB = A^T * dL/dC. The resulting batch
+        // gradients are reduced back to original shapes if batch broadcasting
+        // happened in the forward matmul.
         let lhs = TensorCore::detached(&node.core.parents[0]);
         let rhs = TensorCore::detached(&node.core.parents[1]);
         let upstream = TensorCore::detached(upstream);
@@ -934,6 +922,8 @@ impl TensorCore {
     }
 
     fn reduced_output_index(input_index: &[usize], axis: usize, keep_shape: bool) -> Vec<usize> {
+        // Maps an input index to the index used by a reduction output. This is
+        // shared by sum/max backward for both keep-shape and squeezed outputs.
         if keep_shape {
             let mut index = input_index.to_vec();
             index[axis] = 0;
@@ -957,8 +947,12 @@ impl TensorCore {
         axis: &Option<usize>,
         keep_shape: &Option<bool>,
     ) -> Tensor {
+        // A sum sends the same upstream gradient to every input element that
+        // participated in that output value.
         match axis {
             None => {
+                // Full-tensor sum has one output, so every input receives that
+                // single upstream scalar.
                 let upstream_value = upstream.core.value_at_index(&[0]);
                 TensorCore::raw_tensor(
                     parent.core.shape.clone(),
@@ -966,6 +960,8 @@ impl TensorCore {
                 )
             }
             Some(axis) => {
+                // Axis sum maps each input coordinate to its reduced output
+                // coordinate, then copies that upstream value back.
                 let keep_shape = keep_shape.unwrap();
                 let input_size: usize = parent.core.shape.iter().product();
                 let mut data = Vec::with_capacity(input_size);
@@ -989,6 +985,8 @@ impl TensorCore {
         axis: &Option<usize>,
         keep_shape: &Option<bool>,
     ) -> Tensor {
+        // Split gradients evenly across ties, matching the nondirectional
+        // subgradient commonly used for max reductions.
         match axis {
             None => {
                 let max = output.core.value_at_index(&[0]);
@@ -1046,6 +1044,8 @@ impl TensorCore {
     }
 
     pub(super) fn backward(tensor: &Tensor) {
+        // Seed d(output)/d(output) with ones. Non-scalar outputs are treated as
+        // if the caller requested the gradient of their elementwise sum.
         let topology = Self::get_topology(tensor);
         let ones = TensorCore::raw_tensor(
             tensor.core.shape.clone(),
@@ -1054,6 +1054,9 @@ impl TensorCore {
         tensor.core.accumulate_grad(&ones);
 
         for node in &topology {
+            // Nodes unreachable from the seeded output have no gradient to
+            // propagate. In this topology that is uncommon, but the guard keeps
+            // the rule application local to nodes that received contributions.
             let upstream = match node.core.grad() {
                 Some(grad) => grad,
                 None => continue,
@@ -1061,6 +1064,8 @@ impl TensorCore {
 
             match &node.core.creator {
                 TensorOperation::Add => {
+                    // Addition forwards the upstream gradient unchanged to
+                    // both parents, then unbroadcasts each side if necessary.
                     let lhs = &node.core.parents[0];
                     let rhs = &node.core.parents[1];
                     lhs.core
@@ -1074,32 +1079,9 @@ impl TensorCore {
                             &rhs.core.shape,
                         ));
                 }
-                TensorOperation::Sub => {
-                    let lhs = &node.core.parents[0];
-                    let rhs = &node.core.parents[1];
-                    lhs.core
-                        .accumulate_grad(&TensorCore::reduce_broadcast_gradient(
-                            &upstream,
-                            &lhs.core.shape,
-                        ));
-                    let rhs_contribution =
-                        TensorCore::reduce_broadcast_gradient(&upstream, &rhs.core.shape);
-                    let data = rhs_contribution
-                        .core
-                        .values()
-                        .iter()
-                        .map(|value| -*value)
-                        .collect();
-                    rhs.core
-                        .accumulate_grad(&TensorCore::raw_tensor(rhs.core.shape.clone(), data));
-                }
-                TensorOperation::Div => {
-                    let (lhs_grad, rhs_grad) =
-                        TensorCore::elementwise_divide_gradients(node, &upstream);
-                    node.core.parents[0].core.accumulate_grad(&lhs_grad);
-                    node.core.parents[1].core.accumulate_grad(&rhs_grad);
-                }
                 TensorOperation::ScalMul { scalar } => {
+                    // Scalar multiplication scales the upstream gradient by
+                    // the same scalar used in the forward pass.
                     let parent = &node.core.parents[0];
                     let data = upstream
                         .core
@@ -1112,17 +1094,24 @@ impl TensorCore {
                         .accumulate_grad(&TensorCore::raw_tensor(parent.core.shape.clone(), data));
                 }
                 TensorOperation::ElemMul => {
+                    // Elementwise multiply needs both parent values, so its
+                    // derivative rule is implemented in an index-aware helper.
                     let (lhs_grad, rhs_grad) =
                         TensorCore::elementwise_multiply_gradients(node, &upstream);
                     node.core.parents[0].core.accumulate_grad(&lhs_grad);
                     node.core.parents[1].core.accumulate_grad(&rhs_grad);
                 }
                 TensorOperation::MatMul => {
+                    // Matmul gradients are shape-sensitive, especially with
+                    // batched inputs, so the helper handles transposes and
+                    // broadcast reduction together.
                     let (lhs_grad, rhs_grad) = TensorCore::matmul_gradients(node, &upstream);
                     node.core.parents[0].core.accumulate_grad(&lhs_grad);
                     node.core.parents[1].core.accumulate_grad(&rhs_grad);
                 }
                 TensorOperation::Transpose { axis } => {
+                    // The inverse permutation maps gradient axes back to the
+                    // original parent layout.
                     let mut inverse_axis = vec![0; axis.len()];
                     for (new_axis, old_axis) in axis.iter().enumerate() {
                         inverse_axis[*old_axis] = new_axis;
@@ -1131,6 +1120,8 @@ impl TensorCore {
                     node.core.parents[0].core.accumulate_grad(&contribution);
                 }
                 TensorOperation::Abs => {
+                    // abs is nondifferentiable at zero; use 0 there as a
+                    // practical subgradient.
                     let parent = &node.core.parents[0];
                     parent.core.accumulate_grad(&TensorCore::unary_gradient(
                         parent,
@@ -1147,6 +1138,7 @@ impl TensorCore {
                     ));
                 }
                 TensorOperation::Ln => {
+                    // d ln(x) / dx = 1 / x.
                     let parent = &node.core.parents[0];
                     parent.core.accumulate_grad(&TensorCore::unary_gradient(
                         parent,
@@ -1155,6 +1147,7 @@ impl TensorCore {
                     ));
                 }
                 TensorOperation::Sqrt => {
+                    // d sqrt(x) / dx = 1 / (2 * sqrt(x)).
                     let parent = &node.core.parents[0];
                     parent.core.accumulate_grad(&TensorCore::unary_gradient(
                         parent,
@@ -1162,15 +1155,9 @@ impl TensorCore {
                         |value| 0.5 / value.sqrt(),
                     ));
                 }
-                TensorOperation::Neg => {
-                    let parent = &node.core.parents[0];
-                    parent.core.accumulate_grad(&TensorCore::unary_gradient(
-                        parent,
-                        &upstream,
-                        |_value| -1.0,
-                    ));
-                }
                 TensorOperation::Exp => {
+                    // d exp(x) / dx = exp(x), which is exactly this node's
+                    // forward output.
                     let parent = &node.core.parents[0];
                     parent
                         .core
@@ -1182,6 +1169,8 @@ impl TensorCore {
                         ));
                 }
                 TensorOperation::Pow { exponent } => {
+                    // Integer powers use n * x^(n - 1), including negative
+                    // exponents used by composed division.
                     let parent = &node.core.parents[0];
                     parent.core.accumulate_grad(&TensorCore::unary_gradient(
                         parent,
@@ -1190,6 +1179,7 @@ impl TensorCore {
                     ));
                 }
                 TensorOperation::PowF { exponent } => {
+                    // Floating powers use the same power rule in f32.
                     let parent = &node.core.parents[0];
                     parent.core.accumulate_grad(&TensorCore::unary_gradient(
                         parent,
@@ -1198,18 +1188,23 @@ impl TensorCore {
                     ));
                 }
                 TensorOperation::Sum { axis, keep_shape } => {
+                    // Sum gradients expand the reduced output gradient back to
+                    // the original parent shape.
                     let parent = &node.core.parents[0];
                     parent.core.accumulate_grad(&TensorCore::sum_gradient(
                         parent, &upstream, axis, keep_shape,
                     ));
                 }
                 TensorOperation::Max { axis, keep_shape } => {
+                    // Max gradients flow only to entries that matched the
+                    // forward maximum for each reduction group.
                     let parent = &node.core.parents[0];
                     parent.core.accumulate_grad(&TensorCore::max_gradient(
                         parent, node, &upstream, axis, keep_shape,
                     ));
                 }
                 TensorOperation::Sigmoid => {
+                    // d sigmoid(x) / dx = sigmoid(x) * (1 - sigmoid(x)).
                     let parent = &node.core.parents[0];
                     parent
                         .core
@@ -1221,6 +1216,8 @@ impl TensorCore {
                         ));
                 }
                 TensorOperation::Relu => {
+                    // Relu is nondifferentiable at zero; use 0 there as the
+                    // local derivative.
                     let parent = &node.core.parents[0];
                     parent.core.accumulate_grad(&TensorCore::unary_gradient(
                         parent,
@@ -1229,6 +1226,7 @@ impl TensorCore {
                     ));
                 }
                 TensorOperation::Tanh => {
+                    // d tanh(x) / dx = 1 - tanh(x)^2.
                     let parent = &node.core.parents[0];
                     parent
                         .core
@@ -1239,7 +1237,10 @@ impl TensorCore {
                             |_value, output| 1.0 - output.powi(2),
                         ));
                 }
-                TensorOperation::Constant => {}
+                TensorOperation::Constant => {
+                    // Leaf constants have no parents, so there is nothing to
+                    // propagate further.
+                }
             }
         }
     }

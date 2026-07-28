@@ -118,7 +118,7 @@ Abs
          └──PowF(exponent=0.5)
             └──Pow(exponent=2)
                └──Exp
-                  └──Neg
+                  └──ScalMul(scalar=-1)
                      └──Ln
                         └──Sqrt
                            └──Constant
@@ -156,13 +156,15 @@ MatMul
     assert_eq!(
         divided.computation_graph_string(),
         "\
-Div
-├──Sub
+ElemMul
+├──Add
 |  ├──Constant
-|  └──Constant
-└──ElemMul
-   ├──Constant
-   └──Constant
+|  └──ScalMul(scalar=-1)
+|     └──Constant
+└──Pow(exponent=-1)
+   └──ElemMul
+      ├──Constant
+      └──Constant
 "
     );
 }
