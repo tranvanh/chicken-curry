@@ -42,7 +42,7 @@ fn assert_values_close(actual: Vec<f32>, expected: Vec<f32>) {
 }
 
 fn assert_grad_values_close(tensor: &Tensor, shape: &[usize], expected: Vec<f32>) {
-    let grad = tensor.grad().expect("tensor should have a gradient");
+    let grad = tensor.grad().expect("tensor should have a grad");
     assert_values_close(tensor_values(&grad, shape), expected);
 }
 
@@ -283,7 +283,7 @@ fn backward_propagates_through_unary_operations() {
 }
 
 #[test]
-fn backward_unbroadcasts_elementwise_multiply_gradients() {
+fn backward_unbroadcasts_elementwise_multiply_grads() {
     let left = Tensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
     let right = Tensor::new(vec![3], vec![10.0, 20.0, 30.0]).unwrap();
     let result = Tensor::multiply_elementwise(&left, &right).sum();
