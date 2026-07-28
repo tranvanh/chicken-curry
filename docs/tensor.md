@@ -15,6 +15,8 @@ Internally, a tensor stores:
 - `strides: Vec<usize>` - strides used to map multidimensional indices into
   the shared storage
 - `offset: usize` - starting position in the shared storage
+- `creator: TensorOperation` - operation that produced the tensor
+- `parents: Vec<Tensor>` - input tensors used by that operation
 
 The fields are currently private, so tensor values should be accessed through
 the public methods and operators.
@@ -239,6 +241,8 @@ shape [2, 3], axis 1, keep_shape true  -> [2, 1]
 
 Rank-one reductions use shape `[1]` instead of an empty scalar shape.
 
+Axis reductions currently panic when `axis` is out of bounds.
+
 ## Transpose
 
 General transposition is implemented by reordering axes:
@@ -417,6 +421,50 @@ multiplication instead of matrix multiplication.
 
 Activation and loss helpers are documented separately in
 [Functions](functions.md).
+
+## Computation Graph Output
+
+Each tensor records the operation that produced it and the parent tensors used
+by that operation. This is currently a display/debug feature, not automatic
+differentiation.
+
+```rust
+let tensor = Tensor::ones(vec![2, 2])?;
+let result = (2.0 * &tensor).relu();
+
+let graph = result.computation_graph_string();
+println!("{}", graph);
+```
+
+The graph is rendered as a tree:
+
+```text
+Relu
+└──ScalMul(scalar=2)
+   └──Constant
+```
+
+You can also print it directly:
+
+```rust
+result.print_computation_graph();
+```
+
+Recorded operations include:
+
+- constants and initializers as `Constant`
+- binary elementwise operations: `Add`, `Sub`, `Div`, and `ElemMul`
+- scalar multiplication as `ScalMul(scalar=...)`
+- matrix multiplication as `MatMul`
+- transposition as `Transpose(axis=...)`
+- unary operations: `Abs`, `Ln`, `Sqrt`, `Neg`, `Exp`, `Pow`, `PowF`,
+  `Sigmoid`, `Relu`, and `Tanh`
+- reductions as `Sum(axis=..., keep_shape=...)` and
+  `Max(axis=..., keep_shape=...)`
+
+`mean` and `mean_axis` are represented as `Sum` followed by scalar
+multiplication. Composite helpers such as `softmax`, `mse`, and
+`cross_entropy` appear as the lower-level tensor operations they are built from.
 
 ## Display
 

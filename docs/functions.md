@@ -50,6 +50,10 @@ shape [2, 3], axis 1 -> shape [2, 3]
 `softmax` subtracts the per-axis maximum before exponentiation for numerical
 stability.
 
+Because `softmax` is composed from tensor operations, its computation graph is
+recorded as `Max`, `Sub`, `Exp`, `Sum`, and `Div` nodes rather than a single
+`Softmax` node.
+
 Errors:
 
 - `TensorError::OutOfBounds { bound, index }` when `axis` is not a valid
@@ -76,6 +80,9 @@ mean((pred - target)^2)
 ```
 
 `pred` and `target` must have compatible shapes for subtraction.
+
+The graph for `mse` is recorded as subtraction, power, sum, and scalar
+multiplication operations.
 
 ## Cross Entropy
 
@@ -105,3 +112,6 @@ The selected axis is removed from the output shape:
 ```text
 pred shape [batch, classes], axis 1 -> loss shape [batch]
 ```
+
+The graph for `cross_entropy` is recorded as natural log, elementwise
+multiplication, axis sum, and negation operations.
